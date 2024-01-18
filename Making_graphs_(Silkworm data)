@@ -1,0 +1,690 @@
+# Set the working directory to the specified path
+setwd("~/Desktop/datas/info/BmMLV")
+
+# Load necessary libraries for handling biological sequences and data visualization
+library(Biostrings)
+library(ggplot2)
+library(tidyverse)
+library(RColorBrewer)
+
+# Initialize color palettes from RColorBrewer for plotting
+cols <- brewer.pal(5, "Set1")
+cols2 <- brewer.pal(6, "Set1")
+cols3 <- brewer.pal(8, "Set1")[c(2,3,7,8,5)]
+
+# Read DNA sequences for genes, transposons, and BmMLV from files
+genefas <- readDNAStringSet("/Users/shoujikeisuke/Desktop/datas/info/refdata/KWMTBOMO.nucl.fa")
+transposonfas <- readDNAStringSet("/Users/shoujikeisuke/Desktop/datas/info/refdata/transposon.fasta")
+BmMLVfas <- readDNAStringSet("/Users/shoujikeisuke/Desktop/datas/info/refdata/BmMLV.fas")
+
+# Read and bind miRNA data
+miRNA_KO <- rbind(
+    c(132598,4590,37,8216,19767,9025,4865,2227,1987,0,23,4415,243,3859,2438,4,34756,15),
+    c(76954,2964,28,4703,45867,5656,3188,1306,637,0,4,2756,115,2626,1319,6,1809,11),
+    c(55169,2465,28,4290,13198,3432,3378,726,472,0,11,2846,167,2793,1343,0,1612,28)
+)
+
+# Read gene expression data from text files
+MAT_g1 <- read.table("231122_MAT_g1_table.txt")
+MAT_g2 <- read.table("231122_MAT_g2_table.txt")
+MAT_g3 <- read.table("231122_MAT_g3_table.txt")
+MAT_t12 <- read.table("231122_MAT_t12_table.txt")
+MAT_t3 <- read.table("231122_MAT_t3_table.txt")
+MAT_MLV1 <- read.table("231122_MAT_MLV1_table.txt")
+
+# Read and process total reads data for normalization
+total <- read.table("231122_Bomo_total_reads.txt", fill=T)
+miRNA2 <- sweep(miRNA_KO, 1, total[1:3,2], "/") * 1000000
+
+# Calculate median values for normalization factors
+A2num <- median(miRNA2[2, c(-10,-11,-16)] / miRNA2[1, c(-10,-11,-16)])
+A3num <- median(miRNA2[3, c(-10,-11,-16)] / miRNA2[1, c(-10,-11,-16)])
+
+# Normalize factors and perform scaling
+normF0 <- 1 / total[,2] * 1000000
+normF <- normF0
+normF[1:3] <- normF0[1:3] / c(1, A2num, A3num)
+
+# Normalize gene expression data using the calculated factors
+MAT_g1n <- sweep(MAT_g1, 1, normF, "*")
+MAT_g2n <- sweep(MAT_g2, 1, normF, "*")
+MAT_g3n <- sweep(MAT_g3, 1, normF, "*")
+MAT_t12n <- sweep(MAT_t12, 1, normF, "*")
+MAT_t3n <- sweep(MAT_t3, 1, normF, "*")
+MAT_MLV1n <- sweep(MAT_MLV1, 1, normF, "*")
+
+# Aggregate and sum data for plotting
+p1 <- apply(MAT_g1n[,7:13], 1, sum)
+p2 <- apply(MAT_g2n[,7:13], 1, sum)
+p3 <- apply(MAT_g3n[,7:13], 1, sum)
+p45 <- apply(MAT_t12n[,7:13], 1, sum)
+p6 <- apply(MAT_MLV1n[,7:13], 1, sum)
+
+# Prepare data for bar plot
+tmp <- rbind(MAT_g1n[1,1:13], MAT_g2n[1,1:13], MAT_g3n[1,1:13], MAT_t12n[1,1:13])
+rownames(tmp) <- c("Sense\npiRNA genes", "Transposon-\nlike genes", "Ping-pong\ngenes", "Transposons")
+colnames(tmp) <- 20:32
+tib <- tmp %>%
+  rownames_to_column(var = "rownames") %>%
+  pivot_longer(cols = -rownames, names_to = "Length", values_to = "RPM")
+
+tib[,1] <- factor(as.vector(as.matrix(tib[,1])), levels = c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposon-\nlike genes", "Transposons"))
+p0 <- ggplot(data = tib, mapping = aes(x = Length, y = RPM, fill = rownames))
+p0 <- p0 + facet_grid(rownames ~ ., scales = "free")
+p0 <- p0 + geom_bar(stat = "identity", position = "dodge")
+p0 <- p0 + theme_bw(base_size = 12.5, base_family = "Helvetica")
+# Customize the plot with themes, color scales, and save the plot to a file
+p0 <- p0 + theme(legend.position = "none") + scale_fill_manual(values = cols[2:5])
+p0
+ggsave(file = "231122_gene_piRNA_lengthdist.pdf", plot = p0, dpi = 320, width = 100, height = 110, units = "mm")
+
+# Initialize variables and read in data for RNA analysis
+names1 <- c("RNA1_BmN4_GFPKO", "RNA2_BmN4_Ago2KO", "RNA3_BmN4_SiwiKO")
+names2 <- c("17_BmN4_GFPKO", "18_BmN4_Ago2KO", "19_BmN4_SiwiKO")
+names3 <- c("transposon", "KWMTBOMO", "BmMLV")
+
+# Count the number of lines (entries) in the .bed files for different RNA types
+line1 <- nrow(read.table(paste0(names3[1], ".bed")))
+line2 <- nrow(read.table(paste0(names3[2], ".bed")))
+line3 <- nrow(read.table(paste0(names3[3], ".bed")))
+
+# Initialize and prepare RNABOX for storing RNA related data
+RNABOX <- rep(0, line1 + line2 + line3)
+names(RNABOX) <- c(as.character(read.table(paste0(names3[1], ".bed"))[,1]),
+                   as.character(read.table(paste0(names3[2], ".bed"))[,1]),
+                   as.character(read.table(paste0(names3[3], ".bed"))[,1]))
+
+lenVec <- as.numeric(c(as.character(read.table(paste0(names3[1], ".bed"))[,3]),
+                       as.character(read.table(paste0(names3[2], ".bed"))[,3]),
+                       as.character(read.table(paste0(names3[3], ".bed"))[,3])))
+
+# Initialize variables for piRNA related data processing
+piRNABOX <- RNABOX
+piRNABOXp <- RNABOX
+piRNABOXm <- RNABOX
+RNABOXp <- RNABOX
+RNABOXm <- RNABOX
+targets <- list(1:line1, (line1+1):(line1+line2), (line1+line2+1):(line1+line2+line3))
+j <- 1
+for(i in 1:3) {
+  RNABOX[targets[[i]]] <- read.table(paste0("170705_", names1[j], "_", names3[i], "_RNA_HS2.txt"))[,7]
+  RNABOXp[targets[[i]]] <- read.table(paste0("170705_", names1[j], "_", names3[i], "_RNA_HS2_p.txt"))[,7]
+  RNABOXm[targets[[i]]] <- read.table(paste0("170705_", names1[j], "_", names3[i], "_RNA_HS2_m.txt"))[,7]
+  piRNABOX[targets[[i]]] <- read.table(paste0("170714_", names2[j], "_", names3[i], "_piRNA.txt"))[,7]
+  piRNABOXp[targets[[i]]] <- read.table(paste0("170714_", names2[j], "_", names3[i], "_piRNA_p.txt"))[,7]
+  piRNABOXm[targets[[i]]] <- read.table(paste0("170714_", names2[j], "_", names3[i], "_piRNA_m.txt"))[,7]
+}
+
+# Calculate RNA totals for normalization
+RNAtotal <- 145975016
+R4 <- c(rep(F, 1705), T, rep(F, (line1 + line2 + line3) - 1706))
+RNABOX2 <- (RNABOX / lenVec * 1000) / RNAtotal * 1000000
+RNABOXp2 <- (RNABOXp / lenVec * 1000) / RNAtotal * 1000000
+RNABOXm2 <- (RNABOXm / lenVec * 1000) / RNAtotal * 1000000
+piRNABOX2 <- (piRNABOX / lenVec * 1000) / total[1, 2] * 1000000
+piRNABOXp2 <- (piRNABOXp / lenVec * 1000) / total[1, 2] * 1000000
+piRNABOXm2 <- (piRNABOXm / lenVec * 1000) / total[1, 2] * 1000000
+
+# Identify transgene elements in the RNA data
+transgene <- is.element(names(piRNABOX), as.character(read.table("KWMTBOMO_transposongenelist.txt")[,1]))
+transposon <- c(rep(T, 1811), rep(F, (line1 + line2 + line3) - 1811))
+BmMLV <- names(RNABOX2) == "BmMLV"
+
+# Load libraries and set color palettes for further visualizations
+library(ggplot2)
+library(RColorBrewer)
+cols <- brewer.pal(5, "Set1")
+cols2 <- brewer.pal(6, "Set1")
+
+# Initialize and prepare data frames for scatter plot visualization of RNA and piRNA data
+i <- 1
+frame1 <- cbind(log2(RNABOX2 + 0.001), log2(piRNABOX2 + 0.001))
+tag <- log2(piRNABOX2 + 0.1) > log2(RNABOX2 + 0.1) / 2 & !transposon & !transgene & !names(RNABOX2) == "BmMLV"
+
+# Label specific RNA sequences for clarity in later analysis
+rownames(frame1)[18692:18694] <- c("BmMLV_rdrp", "BmMLV_cp", "BmMLV_p15")
+colnames(frame1) <- c("RNA", "piRNA")
+layer0 <- rep("gene", nrow(frame1))
+layer0[transposon] <- "transposon"
+
+# Classify and tag data based on gene types and transposon presence
+layer1 <- rep("gene", nrow(frame1))
+layer1[transposon] <- "transposon"
+layer1[transgene] <- "trapgene"
+layer1[BmMLV] <- "BmMLV"
+layer2 <- layer1
+layer2[tag] <- "piRNAprodgene"
+layer3 <- layer1
+sense_p <- piRNABOXp2 / (piRNABOXp2 + piRNABOXm2)
+layer3[sense_p < 1 & layer1 == "gene"] <- "ppgene"
+frame2 <- data.frame(frame1, layer1 = as.factor(layer1), layer2 = as.factor(layer2), layer3 = as.factor(layer3))
+frame2a <- data.frame(frame1, layer1 = as.factor(layer1), layer2 = as.factor(layer2), layer3 = as.factor(layer3))
+
+# Initialize more variables for data visualization customization
+layer3a <- layer3
+layer3b <- layer3
+layer3c <- layer3
+layer3d <- layer3
+layer3e <- layer3
+layer3f <- layer3
+layer3a[!layer3 == "gene"] <- "Z"
+layer3b[!layer3 == "ppgene"] <- "Z"
+layer3c[!layer3 == "trapgene"] <- "Z"
+layer3d[!layer3 == "transposon"] <- "Z"
+layer3e[!layer3 == "gene"] <- "Z"
+layer3e[18692:(line1 + line2 + line3)] <- "BmLV"
+layer3f[!layer3 == "gene"] <- "Z"
+layer3f[layer3 == "gene"] <- "Z"
+layer3f[18692:(line1 + line2 + line3)] <- "BmLV"
+
+# Prepare data frames for scatter plots
+frame3 <- data.frame(frame1, layer3a, layer3b, layer3c, layer3d)[1:18691,]
+frame0 <- data.frame(frame1, layer0)[1:18691,]
+frame4 <- data.frame(frame1, layer3e, layer3f)
+layer3a2 <- layer3a
+layer3a2[frame3[,2] == log2(0.001)] <- "Z"
+
+# Create a color map for the scatter plots
+colmap <- matrix("#C0C0C0FF", 5, 5)
+for (i in 1:5) {
+    colmap[i, i] <- cols[i]
+}
+colmap2 <- matrix("#C0C0C0FF", 6, 6)
+for (i in 1:6) {
+    colmap2[i, i] <- cols2[i]
+}
+
+# Set color palette for further visualization
+cols <- brewer.pal(5, "Set1")
+
+# Assign levels to factor variables for visualization
+levels(frame3[, "layer3a"]) <- c("gene", "Others")
+levels(frame3[, "layer3b"]) <- c("ppgene", "Others")
+levels(frame3[, "layer3c"]) <- c("trapgene", "Others")
+levels(frame3[, "layer3d"]) <- c("transposon", "Others")
+
+# Prepare a subset of frame2 for scatter plot visualization
+frame2a <- frame2[1:18691,]
+layer1s <- list(layer3a2[1:18691], layer3b[1:18691], layer3c[1:18691], layer3d[1:18691], layer3e[1:18691])
+layer2s <- list(layer3a, layer3b, layer3c, layer3d, layer3e)
+
+# Flags to indicate expression levels above a certain threshold
+exp1a <- frame2a[, 1] > log2(0.001)
+exp2a <- frame2a[, 2] > log2(0.001)
+exp1 <- frame2[, 1] > log2(0.001)
+exp2 <- frame2[, 2] > log2(0.001)
+lynames <- c("gene", "ppgene", "trapgene", "transposon", "BmLV")
+
+# Perform linear regression and create scatter plots for different gene types.
+# The loop iterates through gene types to create and save scatter plots.
+for (i in 1) {
+    # Perform linear regression on piRNA vs RNA data
+    reg1 <- lm(piRNA ~ RNA, data = data.frame(frame2[!layer2s[[i]] == "Z" & exp1 & exp2, ]))
+    R2val <- summary(reg1)$adj.r.squared  # Calculate adjusted R-squared value for the regression
+
+    # Order data for plotting
+    od1s <- order(layer1s[[i]], decreasing = T)
+
+    # Create scatter plot for piRNA vs RNA with color by gene type
+    g1 <- ggplot(frame2a[od1s, ], aes(x = RNA, y = piRNA)) + geom_point(aes(colour = layer1s[[i]][od1s]), size = 0.5, alpha = 1) + scale_color_manual(values = c(cols[i + 1], "#C0C0C0FF"))
+    g1 <- g1 + labs(x = "RPKM(mRNA)", y = "RPKM(piRNA)") + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(legend.position = "none")
+    g1 <- g1 + scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15)) + scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15))
+    g1 <- g1 + stat_smooth(data = frame2a[!layer1s[[i]] == "Z" & exp1a & exp2a, ], aes(x = RNA, y = piRNA), method = "lm", se = FALSE, colour = "black", linewidth = 1)
+    g1 <- g1 + annotate("text", x = -10, y = 15, label = sprintf("'R'^2 == %s", R2val), hjust = 0, vjust = 1, size = 5, parse = TRUE)
+
+    # Save scatter plot to file
+    ggsave(file = paste0("231122_mRNA_piRNA_", lynames[i], "_plot.pdf"), plot = g1, dpi = 320, width = 90, height = 90, units = "mm")
+}
+
+# Perform linear regression, scatter plot creation, and saving plots for different gene types
+# Loops through the different gene types to create scatter plots and save them
+for (i in 2:4) {
+    # Perform linear regression on piRNA vs RNA data for the specific gene type
+    reg1 <- lm(piRNA ~ RNA, data = data.frame(frame2[!layer2s[[i]] == "Z" & exp1 & exp2, ]))
+    R2val <- summary(reg1)$adj.r.squared  # Calculate adjusted R-squared value for the regression
+    
+    # Order data for plotting
+    od1s <- order(layer1s[[i]], decreasing = T)
+    
+    # Create scatter plot for piRNA vs RNA with color by gene type
+    g1 <- ggplot(frame2a[od1s, ], aes(x = RNA, y = piRNA)) + geom_point(aes(colour = layer1s[[i]][od1s]), size = 0.5, alpha = 1) + scale_color_manual(values = c(cols[i + 1], "#C0C0C0FF"))
+    g1 <- g1 + labs(x = "RPKM(mRNA)", y = "RPKM(piRNA)") + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(legend.position = "none")
+    g1 <- g1 + scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15)) + scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15))
+    g1 <- g1 + stat_smooth(data = frame2a[!layer1s[[i]] == "Z" & exp1a & exp2a, ], aes(x = RNA, y = piRNA), method = "lm", se = FALSE, colour = "black", linewidth = 1)
+    g1 <- g1 + annotate("text", x = -10, y = 15, label = sprintf("'R'^2 == %s", R2val), hjust = 0, vjust = 1, size = 5, parse = TRUE)
+    
+    # Save scatter plot to file
+    ggsave(file = paste0("231122_mRNA_piRNA_", lynames[i], "_plot.pdf"), plot = g1, dpi = 320, width = 65, height = 65, units = "mm")
+}
+
+# Create scatter plots for the BmLV gene type
+for (i in 5) {
+    # Order data for plotting
+    od1s <- order(layer2s[[i]], decreasing = T)
+    
+    # Create scatter plot for piRNA vs RNA with color by gene type
+    g1 <- ggplot(frame2[od1s, ], aes(x = RNA, y = piRNA)) + geom_point(aes(colour = layer2s[[i]][od1s]), size = point_size, alpha = 1) + scale_color_manual(values = c(cols[1], cols[2], "#C0C0C0FF"))
+    g1 <- g1 + labs(x = "RPKM(mRNA)", y = "RPKM(piRNA)") + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(legend.position = "none")
+    g1 <- g1 + scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15)) + scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15))
+    # Note: stat_smooth is not used in this plot, possibly due to specific data characteristics or requirements
+    
+    # Display the plot
+    g1
+    
+    # Save scatter plot to file
+    ggsave(file = paste0("231122_mRNA_piRNA_", lynames[i], "_plot.pdf"), plot = g1, dpi = 320, width = 65, height = 65, units = "mm")
+}
+
+# Analyze and visualize interaction between miRNA and piRNA binding sites (IP)
+for (i in 1:3) {
+    # Read and store piRNA data related to SiwiIP and BmAgo3IP for different targets
+    IPpiRNABOXS[targets[[i]]] <- read.table(paste0("181220_", "Q1_Naive_SiwiIP_NaIO4m", "_", names3[i], "_piRNA.txt"))[,7]
+    IPpiRNABOXA[targets[[i]]] <- read.table(paste0("181220_", "R1_Naive_BmAgo3IP_NaIO4m", "_", names3[i], "_piRNA.txt"))[,7]
+}
+
+# Normalize and prepare data for visualization
+IPpiRNABOXS2 <- (IPpiRNABOXS / lenVec * 1000) / total[8,2] * 1000000
+IPpiRNABOXA2 <- (IPpiRNABOXA / lenVec * 1000) / total[12,2] * 1000000
+
+# Prepare a data frame for comparing RNA, SiwiIP, and Ago3IP data
+frame1IP <- cbind(log2(RNABOX2 + 0.001), log2(IPpiRNABOXS2 + 0.001), log2(IPpiRNABOXA2 + 0.001))
+frame3IP <- data.frame(frame1IP, layer3a2)[1:18691,]
+levels(frame3IP[, "layer3a2"]) <- c("gene", "Others")
+colnames(frame3IP) <- c("RNA", "SiwiIP", "Ago3IP", "layer3a2")
+
+# Set flags for expression levels above a certain threshold
+exp1 <- frame3IP[, 1] > log2(0.001)
+exp2 <- frame3IP[, 2] > log2(0.001)
+exp3 <- frame3IP[, 3] > log2(0.001)
+
+# Perform linear regression and create scatter plots for SiwiIP vs RNA data
+reg1 <- lm(SiwiIP ~ RNA, data = data.frame(frame3IP[!layer3a2[1:18691] == "Z" & exp1 & exp2, ]))
+R2val <- summary(reg1)$adj.r.squared  # Calculate adjusted R-squared value for the regression
+
+# Create scatter plot for SiwiIP vs RNA with color by gene type
+g1 <- ggplot(frame3IP, aes(x = RNA, y = SiwiIP)) + geom_point(aes(colour = layer3a2), size = 0.5, alpha = 1) + scale_color_manual(values = colmap[2, 2:3])
+g1 <- g1 + geom_point(data = frame3IP[frame3IP[, "layer3a2"] == "gene", ], aes(x = RNA, y = SiwiIP, colour = layer3a2), size = 0.5, alpha = 1)
+g1 <- g1 + labs(x = "RPKM(mRNA)", y = "RPKM(Siwi piRNA)") + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(legend.position = "none")
+g1 <- g1 + scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15)) + scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15))
+g1 <- g1 + stat_smooth(data = data.frame(frame3IP[!layer3a[1:18691] == "Z" & exp1 & exp2, ]), aes(x = RNA, y = SiwiIP), method = "lm", se = FALSE, colour = "black", linewidth = 1)
+g1 <- g1 + annotate("text", x = -10, y = 15, label = sprintf("'R'^2 == %s", R2val), hjust = 0, vjust = 1, size = 5, parse = TRUE)
+
+# Display the plot
+print(g1)
+
+# Save the scatter plot to a file
+ggsave(file = "231122_mRNA_SiwiIP_plot_no2.pdf", plot = g1, dpi = 320, width = 90, height = 90, units = "mm")
+
+# Perform linear regression and create scatter plots for Ago3IP vs RNA data
+reg1 <- lm(Ago3IP ~ RNA, data = data.frame(frame3IP[!layer3a2[1:18691] == "Z" & exp1 & exp3, ]))
+R2val <- summary(reg1)$adj.r.squared  # Calculate adjusted R-squared value for the regression
+
+# Create scatter plot for Ago3IP vs RNA with color by gene type
+g1 <- ggplot(frame3IP, aes(x = RNA, y = Ago3IP)) + geom_point(aes(colour = layer3a2), size = 0.5, alpha = 1) + scale_color_manual(values = colmap[2, 2:3])
+g1 <- g1 + geom_point(data = frame3IP[frame3IP[, "layer3a2"] == "gene", ], aes(x = RNA, y = Ago3IP, colour = layer3a2), size = 0.5, alpha = 1)
+g1 <- g1 + labs(x = "RPKM(mRNA)", y = "RPKM(BmAgo3 piRNA)") + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(legend.position = "none")
+g1 <- g1 + scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15)) + scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15))
+g1 <- g1 + stat_smooth(data = data.frame(frame3IP[!layer3a[1:18691] == "Z" & exp1 & exp3, ]), aes(x = RNA, y = Ago3IP), method = "lm", se = FALSE, colour = "black", linewidth = 1)
+g1 <- g1 + annotate("text", x = -10, y = 15, label = sprintf("'R'^2 == %s", R2val), hjust = 0, vjust = 1, size = 5, parse = TRUE)
+
+# Display the plot
+print(g1)
+
+# Save the scatter plot to a file
+ggsave(file = "231122_mRNA_Ago3IP_plot_no2.pdf", plot = g1, dpi = 320, width = 90, height = 90, units = "mm")
+
+# Read and process piRNA data for different conditions (Luc and Zuc)
+piRNAZc0 <- rbind(
+    cbind(read.table("2015_018B_C1_Luc_28_transposon_piRNA.txt")[,7] / total[8,2] * 1000000,
+          read.table("2015_018B_C3_Zuc_26_transposon_piRNA.txt")[,7] / total[9,2] * 1000000),
+    cbind(read.table("2015_018B_C1_Luc_28_KWMTBOMO_piRNA.txt")[,7] / total[8,2] * 1000000,
+          read.table("2015_018B_C3_Zuc_26_KWMTBOMO_piRNA.txt")[,7] / total[9,2] * 1000000),
+    cbind(read.table("2015_018B_C1_Luc_28_BmMLV_piRNA.txt")[,7] / total[8,2] * 1000000,
+          read.table("2015_018B_C3_Zuc_26_BmMLV_piRNA.txt")[,7] / total[9,2] * 1000000)
+)
+
+# Normalize piRNA counts per thousand bases
+piRNAZc <- sweep(piRNAZc0, 1, lenVec, "/") * 1000
+
+# Filter out genes with zero piRNA counts in both conditions
+zero <- apply(piRNAZc == 0, 1, sum) > 0 
+A <- log2(piRNAZc[!zero, 1] + 0.01) / 2 + log2(piRNAZc[!zero, 2] + 0.01) / 2
+M <- log2(piRNAZc[!zero, 2] + 0.01) - log2(piRNAZc[!zero, 1] + 0.01)
+
+# Prepare data frame for visualization of fold change efficiency
+df_effi0 <- data.frame(M[A > -2.5 & !zeroPi[!zero]], layer3zf[A > -2.5 & !zeroPi[!zero]])
+df_effi <- df_effi0[1:(nrow(df_effi0) - 3),]
+colnames(df_effi) <- c("efficiency", "type")
+
+# Create violin plot for piRNA fold change efficiency by gene type
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type))
+p <- p + geom_violin() + scale_color_manual(values = cols[c(2, 3, 4, 5)])
+p <- p + ylab(expression(paste("log"[2], "(Fold change)"))) + xlab("") + scale_y_continuous(limits = c(-2.5, 2.5))
+p <- p + theme_bw(base_size = 12.5, base_family = "Helvetica")
+p <- p + theme(legend.position = 'none')
+p <- p + geom_boxplot(width = 0.2, fill = "white") + geom_hline(yintercept = 0, linetype = "dotted")
+p
+
+# Save the violin plot to a file
+ggsave(file = "231122_ZucKD_FC_plot_1.pdf", plot = p, dpi = 320, width = 110, height = 60, units = "mm")
+
+
+# Duplicate data for fold change efficiency analysis and remove the last 3 rows
+df_effi0 <- data.frame(M[A > -2.5 & !zeroPi[!zero]], layer3zf[A > -2.5 & !zeroPi[!zero]])
+df_effi <- df_effi0[1:(nrow(df_effi0) - 3),]
+colnames(df_effi) <- c("efficiency", "type")
+
+# Create a violin plot for fold change efficiency without zooming
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type))
+p <- p + geom_violin() + scale_color_manual(values = cols[c(2, 3, 4, 5)])
+p <- p + ylab(expression(paste("log"[2], "(Fold change)"))) + xlab("")
+p <- p + theme_bw(base_size = 12.5, base_family = "Helvetica")
+p <- p + theme(legend.position = 'none')
+p <- p + geom_boxplot(width = 0.2, fill = "white") + geom_hline(yintercept = 0, linetype = "dotted")
+p
+
+# Save the violin plot without zooming to a file
+ggsave(file = "231122_ZucKD_FC_plot_1_nozoom.pdf", plot = p, dpi = 320, width = 110, height = 60, units = "mm")
+
+# Perform statistical test (Wilcoxon test) for each gene type and adjust p-values
+uniname <- c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposon-\nlike genes", "Transposons")
+pval <- rep(0, 4)
+for (i in 1:4) {
+    tmpdata <- df_effi[df_effi[, 2] == uniname[i], 1]
+    pval[i] <- wilcox.test(tmpdata, mu = 0)$p.value
+}
+pval * 4  # Adjust p-values
+
+# Prepare data frame for visualization including BmLV
+df_effi0 <- data.frame(M[A > -2.5 & !zeroPi[!zero]], layer3zf1[A > -2.5 & !zeroPi[!zero]])
+df_effi <- df_effi0
+colnames(df_effi) <- c("efficiency", "type")
+
+# Create violin plot for fold change efficiency including BmLV
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type))
+p <- p + geom_violin() + scale_color_manual(values = cols[c(2, 3, 4, 5, 1)])
+p <- p + ylab(expression(paste("log"[2], "(Fold change)"))) + xlab("") + scale_y_continuous(limits = c(-2.5, 2.5))
+p <- p + theme_bw(base_size = 12.5, base_family = "Helvetica")
+p <- p + theme(legend.position = 'none')
+p <- p + geom_boxplot(width = 0.2, fill = "white") + geom_hline(yintercept = 0, linetype = "dotted")
+p
+
+# Save the violin plot including BmLV to a file
+ggsave(file = "231122_ZucKD_FC_plot_MLV1.pdf", plot = p, dpi = 320, width = 130, height = 60, units = "mm")
+
+# Similar analysis as before but including BmLV and without zooming in the visualization
+df_effi0 <- data.frame(M[A > -2.5 & !zeroPi[!zero]], layer3zf1[A > -2.5 & !zeroPi[!zero]])
+df_effi <- df_effi0
+colnames(df_effi) <- c("efficiency", "type")
+
+# Create violin plot for fold change efficiency including BmLV but without zoom
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type))
+p <- p + geom_violin() + scale_color_manual(values = cols[c(2, 3, 4, 5, 1)])
+p <- p + ylab(expression(paste("log"[2], "(Fold change)"))) + xlab("")
+p <- p + theme_bw(base_size = 12.5, base_family = "Helvetica")
+p <- p + theme(legend.position = 'none')
+p <- p + geom_boxplot(width = 0.2, fill = "white") + geom_hline(yintercept = 0, linetype = "dotted")
+p
+
+# Save the violin plot including BmLV but without zoom to a file
+ggsave(file = "231122_ZucKD_FC_plot_MLV1_nozoom.pdf", plot = p, dpi = 320, width = 130, height = 60, units = "mm")
+
+# Perform statistical tests (Wilcoxon test) and adjust p-values for multiple comparisons
+uniname <- c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposon-\nlike genes", "Transposons", "BmLV")
+pval <- rep(0, 5)
+for (i in 1:5) {
+    tmpdata <- df_effi[df_effi[, 2] == uniname[i], 1]
+    pval[i] <- wilcox.test(tmpdata, mu = 0)$p.value
+}
+pval * 4  # Adjust p-values for multiple comparisons
+
+# Retrieve the levels of factor 'layer3zf1' used in the violin plots
+layer3zf1
+
+# Conduct t-tests for the different gene types against the null hypothesis (mu = 0)
+testResult1 <- t.test(df_effi0[df_effi0[, 2] == "Sense\npiRNA genes", 1], mu = 0)
+testResult2 <- t.test(df_effi0[df_effi0[, 2] == "Ping-pong\ngenes", 1], mu = 0)
+testResult3 <- t.test(df_effi0[df_effi0[, 2] == "Transposon-\nlike genes", 1], mu = 0)
+testResult4 <- t.test(df_effi0[df_effi0[, 2] == "Transposons", 1], mu = 0)
+
+# Prepare data for further analysis of gene efficiency based on mRNA and piRNA differences
+A <- log2(piRNAZc[, 1] + 0.01) / 2 + log2(piRNAZc[, 2] + 0.01) / 2
+M <- log2(piRNAZc[, 2] + 0.01) - log2(piRNAZc[, 1] + 0.01)
+tag_t1 <- A > -2.5 & A < 4 & layer3 == "transposon" & frame1[, 1] > log2(0.001) & frame1[, 2] > log2(0.001)
+tag_t2 <- A >= 4 & layer3 == "transposon"
+tag_g1 <- layer3 == "gene" & frame1[, 1] > log2(0.001) & frame1[, 2] > log2(0.001)
+tag_g2 <- layer3 == "ppgene" & frame1[, 1] > log2(0.001) & frame1[, 2] > log2(0.001)
+tag_g3 <- layer3 == "trapgene" & frame1[, 1] > log2(0.001) & frame1[, 2] > log2(0.001)
+tag_m1 <- layer3 == "BmMLV"
+
+# Determine genes with non-zero piRNA and mRNA expressions
+zeroPi
+effi <- frame1[, 2] - frame1[, 1]
+nc <- frame1[, 1] > log2(0.001) & frame1[, 2] > log2(0.001) & !zeroPi
+
+# Prepare data frame for violin plot of gene efficiency
+layer3rep <- layer3
+layer3rep[layer3 == "transposon"] <- "Transposons"
+layer3rep[layer3 == "gene"] <- "Sense\npiRNA genes"
+layer3rep[layer3 == "ppgene"] <- "Ping-pong\ngenes"
+layer3rep[layer3 == "trapgene"] <- "Transposon-\nlike genes"
+layer3rep[layer3 == "BmMLV"] <- "BmLV"
+df_effi0 <- data.frame(effi, layer3rep)[nc,]
+df_effi <- df_effi0[1:(nrow(df_effi0) - 3),]
+df_effi[, 2] <- factor(df_effi[, 2], levels = c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposon-\nlike genes", "Transposons"))
+colnames(df_effi) <- c("efficiency", "type")
+
+# Create violin plot for gene efficiency
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type))
+p <- p + geom_violin() + scale_color_manual(values = cols[c(2, 3, 4, 5)])
+p <- p + ylab(expression(paste("log"[2], "(piRNA/mRNA)"))) + xlab("")
+p <- p + theme_bw(base_size = 12.5, base_family = "Helvetica")
+p <- p + theme(legend.position = 'none') + geom_hline(yintercept = 0, linetype = "dotted")
+p <- p + geom_boxplot(width = 0.2, fill = "white")
+
+# Save the violin plot for gene efficiency to a file
+ggsave(file = paste0("231122_gene_transposon_efficiency.pdf"), plot = p, dpi = 320, width = 110, height = 60, units = "mm")
+
+# Prepare data frame for additional gene efficiency visualization, now including BmLV
+df_effi0 <- data.frame(effi, layer3rep)[nc,]
+df_effi <- df_effi0
+df_effi[, 2] <- factor(df_effi[, 2], levels = c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposon-\nlike genes", "Transposons", "BmLV"))
+colnames(df_effi) <- c("efficiency", "type")
+
+# Create violin plot for gene efficiency including BmLV
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type))
+p <- p + geom_violin() + scale_color_manual(values = cols[c(2, 3, 4, 5, 1)])
+p <- p + ylab(expression(paste("log"[2], "(piRNA/mRNA)"))) + xlab("")
+p <- p + theme_bw(base_size = 12.5, base_family = "Helvetica")
+p <- p + theme(legend.position = 'none')
+p <- p + geom_boxplot(width = 0.2, fill = "white")
+
+# Save the violin plot for gene efficiency including BmLV to a file
+ggsave(file = paste0("231122_gene_transposon_efficiency_MLV.pdf"), plot = p, dpi = 320, width = 130, height = 60, units = "mm")
+
+# Aggregate data for piRNA production by gene type and condition
+p1 <- apply(MAT_g1n[,7:13], 1, sum)
+p2 <- apply(MAT_g2n[,7:13], 1, sum)
+p3 <- apply(MAT_g3n[,7:13], 1, sum)
+p45 <- apply(MAT_t12n[,7:13], 1, sum)
+p6 <- apply(MAT_MLV1n[,7:13], 1, sum)
+pmat <- rbind(p1, p2, p3, p45, p6)
+
+# Calculate modification ratios for piRNA production based on different conditions
+mt_mod <- cbind(pmat[,2]/pmat[,1],
+                pmat[,3]/pmat[,1],
+                pmat[,4]/pmat[,5],
+                pmat[,6]/pmat[,5],
+                pmat[,7]/pmat[,5],
+                pmat[,9]/pmat[,8])
+
+# Label rows and columns for clear understanding of the data
+rownames(mt_mod) <- c("gene", "trapgene", "ppgene", "transposon", "BmMLV")
+colnames(mt_mod) <- c("Ago2KO", "SiwiKO", "NaIO4", "SiwiIP", "Ago3IP", "ZucKD")
+
+# Prepare data for visualization of modification ratios for different IP conditions
+MATIP <- data.frame(mt_mod[1:4, c(2, 3, 4, 5)])
+colnames(MATIP) <- c("Siwi KO", "NaIO4", "Siwi-IP", "BmAgo3-IP")
+rownames(MATIP) <- c("aSense piRNA\ngenes", "bPing-pong\ngenes", "cTransposon-\nlike genes", "dTransposons")
+tibIP <- MATIP %>%
+  rownames_to_column(var = "rownames") %>%
+  pivot_longer(cols = -rownames, names_to = "IP", values_to = "FC")
+tibIP$IP <- factor(tibIP$IP, levels = c("Siwi-IP", "BmAgo3-IP", "Siwi KO", "NaIO4"))
+
+# Read and normalize miRNA data
+miRNA0 <- read.csv("231226_miRNAs.csv", row.names = 1)
+miRNA <- miRNA0
+miRNAnomr <- sweep(miRNA[c(-10, -11, -16), ], 2, normF, "*")
+
+# Prepare miRNA data for visualization
+miRNA_data <- data.frame(c(miRNAnomr[, 6] / miRNAnomr[, 5],
+                           miRNAnomr[, 7] / miRNAnomr[, 5],
+                           miRNAnomr[, 3] / miRNAnomr[, 1],
+                           miRNAnomr[, 4] / miRNAnomr[, 5]),
+                         c(rep("Siwi-IP", nrow(miRNAnomr)),
+                           rep("BmAgo3-IP", nrow(miRNAnomr)),
+                           rep("Siwi KO", nrow(miRNAnomr)),
+                           rep("NaIO4", nrow(miRNAnomr))))
+colnames(miRNA_data) <- c("FC", "type")
+
+# Merge miRNA data with IP data for combined visualization
+miRNA_data2 <- cbind("zmiRNAs", miRNA_data)
+colnames(miRNA_data2) <- c("rownames", "FC", "IP")
+tibIP$rownames <- factor(tibIP$rownames, levels = c("aSense piRNA\ngenes", "bPing-pong\ngenes", "cTransposon-\nlike genes", "dTransposons", "zmiRNAs"))
+miRNA_data2$rownames <- factor(miRNA_data2$rownames, levels = c("aSense piRNA\ngenes", "bPing-pong\ngenes", "cTransposon-\nlike genes", "dTransposons", "zmiRNAs"))
+
+# Prepare subsets of data for different IP conditions
+tibIPa <- tibIP[tibIP$IP == "Siwi-IP", ]
+tibIPb <- tibIP[tibIP$IP == "BmAgo3-IP", ]
+tibIPc <- tibIP[tibIP$IP == "NaIO4", ]
+tibIPd <- tibIP[tibIP$IP == "Siwi KO", ]
+
+miRNA_data2a <- miRNA_data2[miRNA_data2$IP == "Siwi-IP", ]
+miRNA_data2b <- miRNA_data2[miRNA_data2$IP == "BmAgo3-IP", ]
+miRNA_data2c <- miRNA_data2[miRNA_data2$IP == "NaIO4", ]
+miRNA_data2d <- miRNA_data2[miRNA_data2$IP == "Siwi KO", ]
+
+# Label subsets of data for different IP conditions for clarity
+tibIPa$IP <- "Siwi-IP vs. Total"
+miRNA_data2a$IP <- "Siwi-IP vs. Total"
+tibIPb$IP <- "BmAgo3-IP vs. Total"
+miRNA_data2b$IP <- "BmAgo3-IP vs. Total"
+tibIPc$IP <- "NaIO4 treated vs. Untreated"
+miRNA_data2c$IP <- "NaIO4 treated vs. Untreated"
+tibIPd$IP <- "Siwi KO vs. GFP KO"
+miRNA_data2d$IP <- "Siwi KO vs. GFP KO"
+
+# Combine IP data for different conditions into a list
+tibIPlis <- list(tibIPa, tibIPb, tibIPc, tibIPd)
+miRNA_data2lis <- list(miRNA_data2a, miRNA_data2b, miRNA_data2c, miRNA_data2d)
+
+# Define labels for the x-axis and titles for plots
+xlabs <- c("Fold change\n(normalized\nby total reads)",
+           "Fold change\n(normalized\nby total reads)",
+           "Fold change\n(normalized\nby spikes)",
+           "Fold change\n(normalized\nby miRNA reads)")
+titles <- c(1:4)
+
+# Loop through different IP conditions and create bar plots for each
+for (i in 1:4) {
+    p0 <- ggplot(data = tibIPlis[[i]], mapping = aes(x = rownames, y = FC, fill = rownames))
+    #p0 <- p0 + facet_grid(IP ~ .)
+    p0 <- p0 + geom_bar(stat = "identity", position = "dodge") + scale_fill_manual(values = c(cols[2:5], "grey"))
+    p0 <- p0 + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.title.y = element_blank(), axis.title.x = element_blank())
+    p0 <- p0 + labs(x = "", y = xlabs[i]) + theme(legend.position = "none")
+    p0 <- p0 + geom_hline(yintercept = 1, color = "grey") + ylim(c(0, 4))
+    p0 <- p0 + geom_boxplot(data = miRNA_data2lis[[i]], aes(x = rownames, y = FC), position = position_dodge(0.5), width = 0.6)
+    p0
+    ggsave(file = paste0("231127_gene_transposon_miRNA_allbias_", i, ".pdf"), plot = p0, dpi = 320, width = 100, height = 20, units = "mm")
+}
+
+# Prepare and visualize data for miRNA and piRNA expression changes under different conditions
+# Aggregate data for piRNA production by gene type and condition, including BmLV
+MATIP2 <- data.frame(mt_mod[1:5, c(2, 3, 4, 5)])
+colnames(MATIP2) <- c("Siwi KO", "NaIO4", "Siwi-IP", "BmAgo3-IP")
+rownames(MATIP2) <- c("aSense piRNA\ngenes", "bPing-pong\ngenes", "cTransposon-\nlike genes", "dTransposons", "uBmLV")
+tibIP2 <- MATIP2 %>%
+  rownames_to_column(var = "rownames") %>%
+  pivot_longer(cols = -rownames, names_to = "IP", values_to = "FC")
+tibIP2$IP <- factor(tibIP2$IP, levels = c("Siwi-IP", "BmAgo3-IP", "Siwi KO", "NaIO4"))
+
+# Merge miRNA data with IP data for combined visualization, including BmLV
+miRNA_data3 <- cbind("zmiRNAs", miRNA_data)
+colnames(miRNA_data3) <- c("rownames", "FC", "IP")
+tibIP2$rownames <- factor(tibIP2$rownames, levels = c("aSense piRNA\ngenes", "bPing-pong\ngenes", "cTransposon-\nlike genes", "dTransposons", "uBmLV", "zmiRNAs"))
+miRNA_data3$rownames <- factor(miRNA_data3$rownames, levels = c("aSense piRNA\ngenes", "bPing-pong\ngenes", "cTransposon-\nlike genes", "dTransposons", "uBmLV", "zmiRNAs"))
+
+# Prepare subsets of data for different IP conditions including BmLV
+tibIP2a <- tibIP2[tibIP2$IP == "Siwi-IP", ]
+tibIP2b <- tibIP2[tibIP2$IP == "BmAgo3-IP", ]
+tibIP2c <- tibIP2[tibIP2$IP == "NaIO4", ]
+tibIP2d <- tibIP2[tibIP2$IP == "Siwi KO", ]
+
+miRNA_data3a <- miRNA_data3[miRNA_data3$IP == "Siwi-IP", ]
+miRNA_data3b <- miRNA_data3[miRNA_data3$IP == "BmAgo3-IP", ]
+miRNA_data3c <- miRNA_data3[miRNA_data3$IP == "NaIO4", ]
+miRNA_data3d <- miRNA_data3[miRNA_data3$IP == "Siwi KO", ]
+
+# Label the subsets of data for different IP conditions for clarity in visualization
+tibIP2a$IP <- "Siwi-IP\nvs.\nTotal"
+miRNA_data3a$IP <- "Siwi-IP\nvs.\nTotal"
+tibIP2b$IP <- "BmAgo3-IP\nvs.\nTotal"
+miRNA_data3b$IP <- "BmAgo3-IP\nvs.\nTotal"
+tibIP2c$IP <- "NaIO4 treated\nvs.\nUntreated"
+miRNA_data3c$IP <- "NaIO4 treated\nvs.\nUntreated"
+tibIP2d$IP <- "Siwi KO\nvs.\nGFP KO"
+miRNA_data3d$IP <- "Siwi KO\nvs.\nGFP KO"
+
+# Combine the IP data including BmLV and miRNA data for different conditions into a list
+tibIP2lis <- list(tibIP2a, tibIP2b, tibIP2c, tibIP2d)
+miRNA_data3lis <- list(miRNA_data3a, miRNA_data3b, miRNA_data3c, miRNA_data3d)
+
+# Loop through different IP conditions and create bar plots for each, including BmLV
+for (i in 1:4) {
+    p0 <- ggplot(data = tibIP2lis[[i]], mapping = aes(x = rownames, y = FC, fill = rownames))
+    #p0 <- p0 + facet_grid(IP ~ .)
+    p0 <- p0 + geom_bar(stat = "identity", position = "dodge") + scale_fill_manual(values = c(cols[c(2:5, 1)], "grey"))
+    p0 <- p0 + theme_bw(base_size = 12.5, base_family = "Helvetica") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.title.y = element_blank(), axis.title.x = element_blank())
+    p0 <- p0 + labs(x = "", y = xlabs[i]) + theme(legend.position = "none")
+    p0 <- p0 + geom_hline(yintercept = 1, color = "grey") + ylim(c(0, 4))
+    p0 <- p0 + geom_boxplot(data = miRNA_data3lis[[i]], aes(x = rownames, y = FC), position = position_dodge(0.5), width = 0.6)
+    p0
+    ggsave(file = paste0("231114_gene_transposon_MLV_miRNA_allbias_", i, ".pdf"), plot = p0, dpi = 320, width = 120, height = 20, units = "mm")
+}
+
+# Read data for additional analysis on piRNA and siRNA interactions, possibly for BmMLV-related sequences
+bpiRNABOX2 <- read.table("230601_benny_piRNABOX2.txt")
+bsiRNABOX2 <- read.table("230601_benny_siRNABOX2.txt")
+
+# Prepare the data frame for fold change analysis involving piRNA and siRNA
+dfM <- data.frame(c(bpiRNABOX2[targets[[3]], 6] / bpiRNABOX2[targets[[3]], 5],
+                    bpiRNABOX2[targets[[3]], 15] / bpiRNABOX2[targets[[3]], 14],
+                    bsiRNABOX2[targets[[3]], 6] / bsiRNABOX2[targets[[3]], 5],
+                    bsiRNABOX2[targets[[3]], 15] / bsiRNABOX2[targets[[3]], 14]),
+                  rep(c("Rdrp", "Cp", "P15"), 4),
+                  c(rep(c("piRNA"), 6), rep(c("siRNA"), 6)))
+dfM[, 2] <- factor(dfM[, 2], levels = c("Rdrp", "Cp", "P15"))
+
+# Set column names for better clarity in the data frame
+colnames(dfM) <- c("FC", "Target", "SmallRNA")
+
+# Prepare mean data for visualization
+dfMean <- dfM[c(1:3, 7:9), ]
+dfMean[, 1] <- (dfM[c(1:3, 7:9), 1] + dfM[c(1:3, 7:9) + 3, 1]) / 2
+
+# Create bar plot for fold change visualization of piRNA and siRNA related to BmMLV targets
+g <- ggplot(dfMean, aes(x = Target, y = FC))
+g <- g + geom_bar(stat = "identity", linewidth = 5, width = 0.7, position = position_dodge(width = 0.5), color = NA, fill = cols2[1]) 
+g <- g + geom_jitter(data = dfM, aes(x = Target, y = FC), height = 0, width = 0.2, size = 2)
+g <- g + theme_bw(base_size = 12.5, base_family = "Helvetica")
+g <- g + scale_y_continuous(limits = c(0, 4))
+g <- g + facet_grid(. ~ SmallRNA)
+g <- g + labs(y = "Fold Change\n(SiwiDA/Siwi)", x = "")
+g <- g + geom_hline(yintercept = 1, color = "grey")
+
+# Display the plot
+g
+
+# Save the bar plot for fold change visualization related to BmMLV targets to a file
+ggsave(file = paste0("231127_MLV_SiwiDA.pdf"), plot = g, dpi = 320, width = 100, height = 65, units = "mm")
+
