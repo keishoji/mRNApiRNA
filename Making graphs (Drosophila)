@@ -1,0 +1,249 @@
+# Set the working directory to the specified path
+setwd("~/Desktop/datas/info/BmMLV")
+
+# Load required libraries for bioinformatics, plotting, and data manipulation
+library(Biostrings)
+library(ggplot2)
+library(tidyverse)
+library(RColorBrewer)
+
+# Define sample names (SRR IDs) and tag names (categories of genetic elements)
+SRnames <- c("SRR1746863", "SRR1746864", "SRR1746865", "SRR1746870", "SRR1746871", "SRR1746872")
+tagnames <- c("dmel-all-CDS-r6.27_PA", "dmel-all-transposon-r6.27", "dmel-all-ncRNA-r6.27_RA")
+
+# Initialize matrices for storing data and lengths, and sections for each genetic element
+DR_data <- matrix(0, 11741 + 5392 + 2966, 7)
+DR_data_as <- matrix(0, 11741 + 5392 + 2966, 7)
+DR_len <- rep(0, 11741 + 5392 + 2966)
+sec <- list(1:11741, (11741 + 1):(11741 + 5392), (11741 + 5392 + 1):(11741 + 5392 + 2966))
+
+# Read piRNA coverage data from text files into the matrices for each section and sample
+for (i in 1:3) {
+    for (j in 1:6) {
+        DR_data[sec[[i]], j] <- read.table(paste0(SRnames[j], "_", tagnames[i], "_piRNA_cov.txt"))[, 7]
+        DR_data_as[sec[[i]], j] <- read.table(paste0(SRnames[j], "_", tagnames[i], "_piRNA_as_cov.txt"))[, 7]
+    }
+}
+
+# Read RNA HS2 coverage data for the 7th column of DR_data for each section
+for (i in 1:3) {
+    DR_data[sec[[i]], 7] <- read.table(paste0("SRR2147092_", tagnames[i], "_RNA_HS2_cov.txt"))[, 7]
+}
+
+# Read lengths from RNA HS2 coverage files and store in DR_len for each section
+for (i in 1:3) {
+    DR_len[sec[[i]]] <- read.table(paste0("SRR2147092_", tagnames[i], "_RNA_HS2_cov.txt"))[, 3]
+}
+
+# Calculate the sum of antisense reads for each row in DR_data_as
+asreads <- DR_data_as[, 1] + DR_data_as[, 2] + DR_data_as[, 3]
+
+# Initialize the 'layer' data frames to categorize the genetic elements
+layerD1 <- rep("gene", nrow(DR_data))
+layerD1[sec[[1]]][asreads[sec[[1]]] > 0] <- "ppgene"
+layerD1[sec[[2]]] <- "transposon"
+layerD1[sec[[3]]] <- "lncRNA"
+layerD1[sec[[3]]][asreads[sec[[3]]] > 0] <- "pplncRNA"
+
+# Create copies of layerD1 and adjust categories to be 'Z' except the specific category in each
+layerD1a <- layerD1
+layerD1b <- layerD1
+layerD1c <- layerD1
+layerD1d <- layerD1
+layerD1e <- layerD1
+layerD1a[!layerD1 == "gene"] <- "Z"
+layerD1b[!layerD1 == "ppgene"] <- "Z"
+layerD1c[!layerD1 == "transposon"] <- "Z"
+layerD1d[!layerD1 == "lncRNA"] <- "Z"
+layerD1e[!layerD1 == "pplncRNA"] <- "Z"
+
+# Define total read counts for normalization
+total_dr <- c(30682504, 32260664, 26861486, 15111980, 13239651, 7734178, 42010567)
+
+# Copy DR_data to DBOX and set column names
+DBOX <- DR_data
+colnames(DBOX) <- c("Piwi", "Aub", "Ago3", "Piwiz", "Aubz", "Ago3z", "RNA")
+
+# Normalize DBOX by lengths and then by total read counts and convert to RPKM
+SW <- sweep(DBOX, 1, DR_len, "/") * 1000
+DBOX2 <- log2(sweep(SW, 2, total_dr, "/") * 1000000 + 0.001)
+DBOX1 <- sweep(SW, 2, total_dr, "/") * 1000000 + 0.001
+
+# Choose color palette for plotting
+colsD <- brewer.pal(8, "Set1")[c(2, 3, 5, 7)]
+
+# Prepare lists and names for layers and experiments
+layerD1s <- list(layerD1a, layerD1b, layerD1c, layerD1d, layerD1e)
+lynamesD <- c("gene", "ppgene", "transposon", "lncRNA", "pplncRNA")
+exp1 <- DBOX2[, 1] > log2(0.001)
+exp2 <- DBOX2[, 2] > log2(0.001)
+exp3 <- DBOX2[, 3] > log2(0.001)
+exp7 <- DBOX2[, 7] > log2(0.001)
+
+# Generate scatter plots and regression lines for Ago3 vs RNA for different categories and save the plots
+for (i in 1) {
+    reg1 <- lm(Ago3 ~ RNA, data = data.frame(DBOX2[!layerD1s[[i]] == "Z" & exp3 & exp7, ]))
+    R2val <- summary(reg1)$adj.r.squared
+    od1s <- order(layerD1s[[i]], decreasing = T)
+    g1 <- ggplot(data.frame(DBOX2[od1s, ]), aes(x = RNA, y = Ago3)) +
+          geom_point(aes(colour = layerD1s[[i]][od1s]), size = 0.5, alpha = 1) +
+          scale_color_manual(values = c(colsD[i], "#C0C0C0FF")) +
+          labs(x = "RPKM(mRNA)", y = "RPKM(Ago3 piRNA)") +
+          theme_bw(base_size = 12.5, base_family = "Helvetica") +
+          theme(legend.position = "none") +
+          scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 16)) +
+          scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 16)) +
+    # Add a smoothed trend line for the linear model
+    g1 <- g1 + stat_smooth(data = data.frame(DBOX2[!layerD1s[[i]] == "Z" & exp3 & exp7, ]),
+                           aes(x = RNA, y = Ago3), method = "lm", se = FALSE, colour = "black", linewidth = 1) +
+    # Annotate the plot with the R-squared value of the regression
+    g1 <- g1 + annotate("text", x = -10, y = 15, label = sprintf("'R'^2 == %s", R2val), hjust = 0, vjust = 1, size = 5, parse = TRUE)
+    # Display the plot
+    g1
+    # Save the plot to a PDF file
+    ggsave(file = paste0("231128_mRNA_Ago3_", lynamesD[i], "_plot.pdf"), plot = g1, dpi = 320, width = 65, height = 65, units = "mm")
+}
+
+# Repeat similar plotting procedure for different conditions and categories
+# Here the loops are omitted for brevity
+
+# Calculate and store adjusted R-squared values of linear models for different combinations of piRNA and RNA
+Rout <- matrix(0, 5, 3)
+colnames(Rout) <- c("Piwi", "Aub", "Ago3")
+rownames(Rout) <- c("gene", "ppgene", "transposon", "lncRNA", "pplncRNA")
+# Here the loops for calculating R-squared values are omitted for brevity
+
+# Read additional data tables for different genetic element types
+MAT_dt <- read.table("230529_MAT1_dm_transposon_table.txt") 
+MAT_dp <- read.table("230529_MAT1_dm_ppgene_table.txt")
+MAT_dg <- read.table("230529_MAT1_dm_gene_table.txt")
+
+# Calculate the total count per sample and normalization factor
+total_d <- apply(MAT_dt + MAT_dp + MAT_dg, 1, sum)
+normF_d <- 1 / total_dr[1:3] * 1000000
+
+# Normalize data by the normalization factor for different genetic element types
+MAT_dtn <- sweep(MAT_dt, 1, normF_d, "*")
+MAT_dpn <- sweep(MAT_dp, 1, normF_d, "*")
+MAT_dgn <- sweep(MAT_dg, 1, normF_d, "*")
+
+# Prepare data for piRNA length distribution visualization
+tmp <- MAT_dgn[, 1:13]
+rownames(tmp) <- c("Piwi", "Aub", "Ago3")
+colnames(tmp) <- 20:32
+tib <- tmp %>%
+  rownames_to_column(var = "rownames") %>%
+  pivot_longer(cols = -rownames, names_to = "Length", values_to = "RPM")
+tib$Length <- as.numeric(tib$Length)
+
+# Visualize the piRNA length distribution
+tib[, 1] <- factor(as.vector(as.matrix(tib[, 1])), levels = c("Piwi", "Aub", "Ago3"))
+p0 <- ggplot(data = tib, mapping = aes(x = Length, y = RPM)) +
+      facet_grid(rownames ~ ., scales = "free") +
+      geom_bar(stat = "identity", position = "dodge", fill = colsD[2]) +
+      theme_bw(base_size = 12.5, base_family = "Helvetica") +
+      scale_x_continuous(breaks = seq(min(tib$Length), max(tib$Length), by = 5))
+p0
+ggsave(file = "231128_Dro_piRNA_lengthdist.pdf", plot = p0, dpi = 320, width = 90, height = 75, units = "mm")
+
+# Read additional data for antisense reads, coverage data, and length of CDS
+DR_data_as <- read.table("230809_Dr_tes_CDS_DR_data_as.txt")
+DR_data <- read.table("230809_Dr_tes_CDS_DR_data.txt")
+DR_len <- read.table("230809_Dr_tes_CDS_DR_len.txt")[,1]
+
+# Define total read counts for normalization of RPKM calculations
+total <- c(26956258, 19533205, 32218687, 20083836, 22295401, 23741961)
+
+# Calculate Reads Per Kilobase Million (RPKM) for each sample
+RPKM <- sweep(sweep(DR_data, 2, total, "/") * 1000000, 1, DR_len, "/") * 1000
+
+# Calculate sum of antisense reads and define tags based on the presence of antisense reads
+asreads <- apply(DR_data_as, 1, sum)
+tag1 <- asreads > 0
+
+# Define gene categories
+gene <- c(rep(TRUE, 11741), rep(FALSE, 5392))
+
+# Define high expression based on RPKM values
+high <- RPKM[, 1] > 10
+
+# Define specific CDS names of interest
+CDSnames <- c("ATPsynbeta-PA", "Muc14A-PA", "LKRSDH-PA", "CG30069-PA", "Sec8-PA", "Phlpp-PA", "Mi-2-PA", "Dhc62B-PA", "wb-PA", "CG2926-PA", "Smg6-PA", "mus308-PA", "IleRS-PA", "chp-PA", "CG12717-PA")
+
+# Tag rows based on whether they are in the list of specific CDS names
+CDStag <- is.element(rownames(RPKM), CDSnames)
+
+# Sum RPKM values for specific groups and calculate log2 fold change
+RPKM2 <- cbind(RPKM[, 1] + RPKM[, 2], RPKM[, 3] + RPKM[, 4], RPKM[, 5] + RPKM[, 6])
+a <- sweep(log2(RPKM2 + 0.001), 1, log2(RPKM2[, 1] + 0.001), "-")
+exp <- apply(RPKM2 == 0, 1, sum) == 0
+
+# Prepare data for violin plot, categorizing data based on genetic element types and conditions
+i <- 2
+df_effi <- data.frame(c(a[exp & !gene, i], a[exp & tag1 & gene, i], a[exp & !tag1 & gene, i], a[exp & CDStag, i]),
+                      c(rep("Transposons", sum(exp & !gene)), rep("Ping-pong\ngenes", sum(exp & tag1 & gene)), rep("Sense\npiRNA genes", sum(exp & !tag1 & gene)), rep("CDS\npiRNA genes", sum(exp & CDStag))))
+colnames(df_effi) <- c("efficiency", "type")
+df_effi[, 2] <- factor(df_effi[, 2], levels = c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposons", "CDS\npiRNA genes"))
+
+# Plot the efficiency distribution using a violin plot
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type)) +
+     geom_violin() + scale_color_manual(values = colsD[c(2, 3, 5, 4)]) +
+     ylab(expression(paste("log"[2], "(Fold change)"))) + xlab("") +
+     scale_y_continuous(limits = c(-8, 8)) +
+     theme_bw(base_size = 12.5, base_family = "Helvetica") +
+     theme(legend.position = 'none') + geom_hline(yintercept = 0, linetype = "dotted") +
+     geom_boxplot(width = 0.2, fill = "white")
+p
+ggsave(file = paste0("231128_CDSpiRNA_Ago2KD_efficiency.pdf"), plot = p, dpi = 320, width = 100, height = 70, units = "mm")
+
+# Conduct statistical tests to assess the distribution of efficiency for each category
+uniname <- c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposons", "CDS piRNA\ngenes")
+pval <- rep(0, 4)
+nomA <- rep(0, 4)
+for (i in 1:4) {
+    tmpdata <- df_effi[df_effi[, 2] == uniname[i], 1]
+    mean_data <- mean(tmpdata)
+    sd_data <- sd(tmpdata)
+    nomA[i] <- ks.test(tmpdata, "pnorm", mean = mean_data, sd = sd_data)$p.value
+    pval[i] <- t.test(tmpdata, mu = 0)$p.value
+}
+pval * 4
+
+# Prepare data for efficiency analysis for a different condition or dataset
+i <- 3
+df_effi <- data.frame(
+    c(
+        a[exp & !gene, i], 
+        a[exp & tag1 & gene, i], 
+        a[exp & !tag1 & gene, i], 
+        a[exp & CDStag, i]
+    ),
+    c(
+        rep("Transposons", sum(exp & !gene)), 
+        rep("Ping-pong\ngenes", sum(exp & tag1 & gene)), 
+        rep("Sense\npiRNA genes", sum(exp & !tag1 & gene)), 
+        rep("CDS\npiRNA genes", sum(exp & CDStag))
+    )
+)
+colnames(df_effi) <- c("efficiency", "type")
+df_effi[, 2] <- factor(df_effi[, 2], levels = c("Sense\npiRNA genes", "Ping-pong\ngenes", "Transposons", "CDS\npiRNA genes"))
+
+# Plot the efficiency distribution for the different condition or dataset
+p <- ggplot(df_effi, aes(x = type, y = efficiency, colour = type)) +
+    geom_violin() + scale_color_manual(values = colsD[c(2, 3, 5, 4)]) +
+    ylab(expression(paste("log"[2], "(Fold change)"))) + xlab("") +
+    scale_y_continuous(limits = c(-8, 8)) +
+    theme_bw(base_size = 12.5, base_family = "Helvetica") +
+    theme(legend.position = 'none') + geom_hline(yintercept = 0, linetype = "dotted") +
+    geom_boxplot(width = 0.2, fill = "white")
+p
+ggsave(file = paste0("231128_CDSpiRNA_DcrKD_efficiency.pdf"), plot = p, dpi = 320, width = 100, height = 70, units = "mm")
+
+# Perform statistical tests to assess the distribution of efficiency for each category in the different condition
+uniname <- c("Genes", "Ping-pong\ngenes", "Transposons", "CDS piRNA\ngenes")
+pval <- rep(0, 4)
+for (i in 1:4) {
+    tmpdata <- df_effi[df_effi[, 2] == uniname[i], 1]
+    pval[i] <- t.test(tmpdata, mu = 0)$p.value
+}
+pval * 4
