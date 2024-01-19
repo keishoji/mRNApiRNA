@@ -1,0 +1,256 @@
+##Block 1: Extracting Long Non-Coding RNA Sequences
+R
+# Load the Biostrings package for biological sequence handling
+library(Biostrings)
+
+# Read DNA sequences from a FASTA file
+fas <- readDNAStringSet("/home/kshoji/Gawain/REFdata/GCF_000001635.27_GRCm39_rna.fna")
+
+# Filter sequences that are labeled as "long non-coding RNA"
+fas2 <- fas[grep("long non-coding RNA", names(fas))]
+
+# Further filter the lncRNA sequences to include only those with "transcript variant"
+f3name <- names(fas2[grep("transcript variant", names(fas2))])
+fas3 <- fas2[grep("transcript variant", names(fas2))]
+
+# Process the names to extract and clean up specific information
+result <- sub(paste0(".*", "Mus musculus "), "", f3name)
+result2 <- sub(paste0(", transcript variant", ".*"), "", result)
+
+# Identify unique sequence identifiers
+lis <- unique(result2)
+
+# Initialize a DNAStringSet with placeholders
+OUT1 <- DNAStringSet(rep("N", length(lis)))
+
+# Select the longest variant for each unique identifier
+for(i in 1:length(lis)){
+    tmp <- fas3[result2 == lis[i]]
+    OUT1[i] <- tmp[width(tmp) == max(width(tmp))][1]
+    names(OUT1)[i] <- names(tmp[width(tmp) == max(width(tmp))])[1]
+}
+
+# Combine the filtered sequences with those that do not have "transcript variant"
+OUT2 <- fas2[!is.element(names(fas2), f3name)]
+
+# Combine all processed sequences
+OUT <- c(OUT1, OUT2)
+
+# Write the processed sequences to a new FASTA file
+writeXStringSet(OUT, "GCF_000001635.27_GRCm39_rna_lncRNA_unique.fas")
+
+##Block 2: Generating BED File from Processed FASTA File
+R
+# Load the Biostrings package
+library(Biostrings)
+
+# Read the processed lncRNA sequences from the FASTA file
+fas <- readDNAStringSet("GCF_000001635.27_GRCm39_rna_lncRNA_unique.fas")
+
+# Split the names of the sequences to extract specific parts
+split <- strsplit(names(fas), " ")
+
+# Initialize vectors to store the extracted parts
+gtag <- rep("N", length(fas))
+name <- rep("N", length(fas))
+
+# Extract specific parts of the names for all sequences
+for(i in 1:length(fas)){
+    gtag[i] <- split[[i]][2]
+    name[i] <- split[[i]][1]
+    cat(i)
+}
+
+# Combine the extracted information into a matrix, formatted as a BED file
+MAT <- cbind(name, 0, width(fas), "*", 255, "+")
+
+# Write the matrix to a BED file
+write.table(MAT, "GCF_000001635.27_GRCm39_rna_lncRNA_unique.bed", quote = F, row.names = F, col.names = F, sep = "\t")
+
+  
+##Block 3: Bowtie Alignment and Coverage Calculation for piRNA
+# Define labels and sample names
+LL="GRCm39_cds_unique"
+NN="SRR039427 SRR039428"
+O="_trim.fasta.gz"
+
+# Loop through each label and sample name for alignment and coverage calculation
+for L in ${LL}; do
+    for N in  ${NN}; do
+        echo $N
+        
+        # Align sequences using Bowtie and convert output to BAM and BED formats
+        ( bowtie --offrate 3 -p 10 -a --best --strata -v 2 -m 1 -t --sam ${L} -f /home/kshoji/Gawain/NGSdata/sra/${N}${O}  > ${N}_${L}.sam )  
+        samtools view -@ 10 -bS ${N}_${L}.sam > ${N}_${L}.bam
+        bamToBed -i ${N}_${L}.bam > ${N}_${L}.bed
+        
+        # Filter the BED file for piRNA length range and calculate coverage
+        awk '$3-$2>25 && $3-$2<33' ${N}_${L}.bed > ${N}_${L}_piRNA.bed
+        rm ${N}_${L}.bam
+        rm ${N}_${L}.sam
+        awk '$3-$2>26 && $3-$2<40' ${N}_${L}.bed > ${N}_${L}_piRNA.bed
+        coverageBed -a /home/kshoji/Gawain/REFdata/GRCm39_cds_unique.bed -b ${N}_${L}_piRNA.bed > ${N}_${L}_piRNA_cov.txt
+        coverageBed -a /home/kshoji/Gawain/REFdata/GRCm39_cds_unique.bed -b ${N}_${L}_piRNA.bed -S > ${N}_${L}_piRNA_as_cov.txt
+    done
+done
+
+##Block 4: hisat2 Alignment and Coverage Calculation for piRNA
+sh
+# Define labels and sample names for hisat2 alignment
+LL="GRCm39_cds_unique"
+M=""
+NN="SRR7760359 SRR7760371 SRR7760372"
+O1="_1.fastq.gz"
+O2="_2.fastq.gz"
+
+# Loop through each label and sample name for hisat2 alignment and coverage calculation
+for L in ${LL}; do
+    for N in  ${NN}; do
+        echo $N
+        
+        # Align sequences using hisat2 and convert output to BAM and BED formats
+        hisat2 -x ${L} -1 /home/kshoji/Gawain/NGSdata/sra/${M}${N}${O1}  -2 /home/kshoji/Gawain/NGSdata/sra/${M}${N}${O2} -k 3 -p 10 -S ${M}${N}_${L}_RNA_HS2.sam
+        samtools view -@ 10 -bS ${M}${N}_${L}_RNA_HS2.sam > ${M}${N}_${L}_RNA_HS2.bam
+        bamToBed -i ${M}${N}_${L}_RNA_HS2.bam > ${M}${N}_${L}_RNA_HS2.bed
+        
+        # Remove temporary files
+        rm ${M}${N}_${L}_RNA_HS2.sam
+        rm ${M}${N}_${L}_RNA_HS2.bam
+        
+        # Calculate coverage using coverageBed
+        coverageBed -a ${L}.bed -b ${M}${N}_${L}_RNA_HS2.bed > ${M}${N}_${L}_RNA_HS2_cov.txt
+    done
+done
+  
+##Block 5: Processing lncRNA and piRNA Data for Transposons
+R
+# Define sample names, mapped read counts, and calculate normalization factors
+Pnames <- c("SRR7760307","SRR7760314","SRR7760329","SRR7760331")
+Rnames <- c("SRR7760359","SRR7760371","SRR7760372")
+Ptag <- c("MIWI","MIWI","MILI","MILI")
+totalmapped <- c(19219613-1010698+16593942-672267, 31333424-671606+27177791-649014, 13515655*2-4538524+8852195*2-3574933+8761719*2-2555757)
+totalmapped2 <- c(3612269-821189, 3044524-757701)
+normF <- 1/totalmapped*1000000
+normF2 <- 1/totalmapped2*1000000
+
+# Read reference data for transposons
+REF <- read.table("mus_musculus_dfam.bed", sep="\t", fill=T, comment.char="", quote = "")
+
+# Initialize matrices for storing coverage data
+MAT0 <- matrix(0, nrow(REF), 7)
+Zuc <- matrix(0, nrow(REF), 2)
+AST <- matrix(0, nrow(REF), 4)
+
+# Read coverage data for piRNA and RNA
+# This part of the script reads the coverage data from text files and stores them in matrices
+for (i in 1:4) {
+    MAT0[,i] <- read.table(paste0(Pnames[i],"_mus_musculus_dfam_m1_piRNA_p.txt"), sep="\t", fill=T, comment.char="", quote = "")[,7]
+    AST[,i] <- read.table(paste0(Pnames[i],"_mus_musculus_dfam_m1_piRNA_m.txt"), sep="\t", fill=T, comment.char="", quote = "")[,7]
+}
+for (i in 1:3) {
+    MAT0[,i+4] <- read.table(paste0(Rnames[i],"_mus_musculus_dfam_RNA_HS2_cov.txt"), sep="\t", fill=T, comment.char="", quote = "")[,7]
+}
+
+# Calculate and normalize RPKM values
+len <- REF[,3]
+MAT <- cbind(MAT0[,1]+MAT0[,2], MAT0[,3]+MAT0[,4], MAT0[,5]+MAT0[,6]+MAT0[,7])
+MAT2 <- sweep(MAT, 2, normF, "*")
+RPKM <- sweep(MAT2, 1, len, "/") * 1000
+
+# Write the RPKM values to a file
+write.table(RPKM, "230926_mouse_piRNA_RNA_transposon.txt")
+
+###Block 6: Further Processing of Transposon Data
+sh
+# Define labels and sample names for processing transposon data
+LL="mus_musculus_dfam"
+M=""
+NN="SRR7760307 SRR7760331 SRR7760314 SRR7760329"
+O="_trim.fasta.gz"
+
+# Loop through each label and sample name
+for L in ${LL}; do
+    for N in  ${NN}; do
+        echo $N
+        
+        # Align sequences using Bowtie, convert output to BAM and BED formats, filter piRNA by length
+        ( bowtie --offrate 3 -p 20 -a --best --strata -v 2 -m 1 -t --sam ${L} -f /home/kshoji/Gawain/NGSdata/sra/${N}${O}  > ${N}_${L}_m1.sam )  
+        samtools view -@ 20 -bS ${N}_${L}_m1.sam > ${N}_${L}_m1.bam
+        bamToBed -i ${N}_${L}_m1.bam > ${N}_${L}_m1.bed
+        rm ${N}_${L}_m1.sam
+        rm ${N}_${L}_m1.bam
+        awk '$3-$2>26 && $3-$2<40' ${N}_${L}_m1.bed > ${N}_${L}_m1_piRNA.bed
+        
+        # Calculate coverage for positive and negative strands
+        coverageBed -b ${N}_${L}_m1_piRNA.bed -a ${L}.bed -s  > ${N}_${L}_m1_piRNA_p.txt
+        coverageBed -b ${N}_${L}_m1_piRNA.bed -a ${L}.bed -S  > ${N}_${L}_m1_piRNA_m.txt
+    done
+done
+
+          
+##Block 7: hisat2 Alignment and Coverage Calculation for Transposon-Related RNA
+sh
+# Define labels and sample names for hisat2 alignment
+LL="mus_musculus_dfam"
+M=""
+NN="SRR7760359 SRR7760371 SRR7760372"
+O1="_1.fastq.gz"
+O2="_2.fastq.gz"
+
+# Loop through each label and sample name for hisat2 alignment and coverage calculation
+for L in ${LL}; do
+    for N in  ${NN}; do
+        echo $N
+        
+        # Align sequences using hisat2, convert output to BAM and BED formats
+        hisat2 -x ${L} -1 /home/kshoji/Gawain/NGSdata/sra/${M}${N}${O1}  -2 /home/kshoji/Gawain/NGSdata/sra/${M}${N}${O2} -k 3 -p 10 -S ${M}${N}_${L}_RNA_HS2.sam
+        samtools view -@ 10 -bS ${M}${N}_${L}_RNA_HS2.sam > ${M}${N}_${L}_RNA_HS2.bam
+        bamToBed -i ${M}${N}_${L}_RNA_HS2.bam > ${M}${N}_${L}_RNA_HS2.bed
+        
+        # Remove temporary files
+        rm ${M}${N}_${L}_RNA_HS2.sam
+        rm ${M}${N}_${L}_RNA_HS2.bam
+        
+        # Calculate coverage using coverageBed
+        coverageBed -a ${L}.bed -b ${M}${N}_${L}_RNA_HS2.bed > ${M}${N}_${L}_RNA_HS2_cov.txt
+    done
+done
+          
+#Block 8: Final Processing and Writing Output Files
+R
+# Final processing of transposon-related data in R
+Pnames <- c("SRR7760307","SRR7760314","SRR7760329","SRR7760331")
+Rnames <- c("SRR7760359","SRR7760371","SRR7760372")
+
+# Define tags and calculate total mapped reads
+Ptag <- c("MIWI","MIWI","MILI","MILI")
+totalmapped <- c(19219613-1010698+16593942-672267, 31333424-671606+27177791-649014, 13515655*2-4538524+8852195*2-3574933+8761719*2-2555757)
+totalmapped2 <- c(3612269-821189, 3044524-757701)
+normF <- 1/totalmapped*1000000
+normF2 <- 1/totalmapped2*1000000
+
+# Read reference data for transposons
+REF <- read.table("mus_musculus_dfam.bed", sep="\t", fill=T, comment.char="", quote = "")
+
+# Initialize matrices for storing coverage data
+MAT0 <- matrix(0, nrow(REF), 7)
+Zuc <- matrix(0, nrow(REF), 2)
+AST <- matrix(0, nrow(REF), 4)
+
+# Read coverage data for piRNA and RNA
+for (i in 1:4) {
+    MAT0[,i] <- read.table(paste0(Pnames[i],"_mus_musculus_dfam_m1_piRNA_p.txt"), sep="\t", fill=T, comment.char="", quote = "")[,7]
+    AST[,i] <- read.table(paste0(Pnames[i],"_mus_musculus_dfam_m1_piRNA_m.txt"), sep="\t", fill=T, comment.char="", quote = "")[,7]
+}
+for (i in 1:3) {
+    MAT0[,i+4] <- read.table(paste0(Rnames[i],"_mus_musculus_dfam_RNA_HS2_cov.txt"), sep="\t", fill=T, comment.char="", quote = "")[,7]
+}
+
+# Normalize and calculate RPKM values
+len <- REF[,3]
+MAT <- cbind(MAT0[,1]+MAT0[,2], MAT0[,3]+MAT0[,4], MAT0[,5]+MAT0[,6]+MAT0[,7])
+MAT2 <- sweep(MAT, 2, normF, "*")
+RPKM <- sweep(MAT2, 1, len, "/") * 1000
+
+# Write the final RPKM values to a file
+write.table(RPKM, "230926_mouse_piRNA_RNA_transposon.txt")
