@@ -1,8 +1,40 @@
-
-
 ######
 #bash
 #####
+
+# Defining variables for transposon, date prefix, and RNA sample names
+LL="KWMTBOMO transposon BmMLV"
+M="170705_"
+NN="RNA1_BmN4_GFPKO RNA2_BmN4_Ago2KO RNA3_BmN4_SiwiKO"
+O1="_R1.fastq.gz"
+O2="_R2.fastq.gz"
+
+# Looping over the transposon and RNA sample names
+for L in ${LL}; do
+    for N in ${NN}; do
+        # Printing the current sample name
+        echo $N
+        
+        # Aligning RNA sequences to the reference using Hisat2
+        hisat2 -x ${L} -1 /home/kshoji/Gawain/NGSdata/${M}${N}${O1} -2 /home/kshoji/Gawain/NGSdata/${M}${N}${O2} -k 3 -p 20 -S ${M}${N}_${L}_RNA_HS2.sam
+        
+        # Converting SAM to BAM format using samtools
+        samtools view -@ 10 -bS ${M}${N}_${L}_RNA_HS2.sam > ${M}${N}_${L}_RNA_HS2.bam
+        
+        # Converting BAM to BED format
+        bamToBed -i ${M}${N}_${L}_RNA_HS2.bam > ${M}${N}_${L}_RNA_HS2.bed
+
+        # Calculating coverage using coverageBed
+        coverageBed -b ${M}${N}_${L}_RNA_HS2.bed -a /home/kshoji/Gawain/REFdata/${L}.bed > ${M}${N}_${L}_RNA_HS2.txt
+        
+        # Removing intermediate files
+        rm ${M}${N}_${L}_RNA_HS2.sam
+        rm ${M}${N}_${L}_RNA_HS2.bam
+    done
+done
+
+
+#mapping small RNAs
 
 LL="transposon KWMTBOMO BmMLV"
 NN="170714_17_BmN4_GFPKO 170714_18_BmN4_Ago2KO 170714_19_BmN4_SiwiKO 181220_O1_Naïve_Total_NaIO4p 181220_P1_Naïve_Total_NaIO4m 181220_Q1_Naive_SiwiIP_NaIO4m 181220_R1_Naive_BmAgo3IP_NaIO4m 2015_018B_C1_Luc_28 2015_018B_C3_Zuc_26"
