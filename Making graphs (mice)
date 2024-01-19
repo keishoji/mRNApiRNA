@@ -28,10 +28,6 @@ RPKML <- read.table("GRCm39_rna_lncRNA_unique_RPKM.txt")
 RPKMT <- read.table("230926_mouse_piRNA_RNA_transposon.txt")
 colnames(RPKMT) <- c("MIWI", "MILI", "RNA")
 
-# Read in reference data for lncRNA and genes
-REF2 <- read.table("mouse_lncRNA.bed")
-REF1 <- read.table("GCF_000001635.27_GRCm39_rna_lncRNA_unique.bed")
-
 # Combine and log-transform RPKM data, then assign categories to data points based on 'layer'
 frame1 <- log2(rbind(RPKM, RPKML, RPKMT) + 0.001)
 layer1 <- c(rep("gene", nrow(RPKM)), rep("lncRNA", nrow(RPKML)), rep("Transposon", nrow(RPKMT)))                             
@@ -83,7 +79,7 @@ for(i in 1:5) {
 }
 
 # Read in data for piRNA gene length distribution and transform the data for plotting
-tmp <- read.table("230611_mouse_piRNA_gene_length.txt")
+tmp <- read.table("230714_mouse_piRNA_gene_length.txt")
 tmp <- tmp[,1:21]
 colnames(tmp) <- 20:40
 tib <- tmp %>%
