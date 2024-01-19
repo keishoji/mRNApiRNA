@@ -1,0 +1,256 @@
+R
+library(Biostrings)
+fas<-readDNAStringSet("/home/kshoji/Gawain/REFdata/dmel-all-CDS-r6.27.fasta")
+fasnames <- gsub("\\s.*", "", names(fas))
+fasnames2 <- gsub(".*-", "", fasnames)
+fas2 <- fas[fasnames2=="PA"]
+OUT <- cbind(fasnames2,0,width(fas2),"*",255,"+")
+writeXStringSet(fas2,"dmel-all-CDS-r6.27_PA.fasta")
+write.table(OUT,"dmel-all-CDS-r6.27_PA.bed",quote=F,row.names=F,col.names=F,sep="\t")
+
+R
+library(Biostrings)
+fas<- readDNAStringSet("/home/kshoji/Gawain/REFdata/dmel-all-ncRNA-r6.27.fasta.gz")
+a <- grep("-RA",names(fas))
+gn <- unlist(strsplit(names(fas)," "))[(1:length(fas))*11-10]
+
+OUT <- cbind(gn,0,width(fas),"*",255,"+")
+writeXStringSet(fas[a],"dmel-all-ncRNA-r6.27_RA.fasta")
+write.table(OUT,"dmel-all-ncRNA-r6.27_RA.bed",quote=F,row.names=F,col.names=F,sep="\t")
+
+LL="dmel-all-CDS-r6.27_PA dmel-all-transposon-r6.27　dmel-all-ncRNA-r6.27_RA　"
+for L in ${LL}; do
+bowtie-build ${L}.fasta ${L}
+hisat2-build ${L}.fasta ${L}
+done
+
+
+LL="dmel-all-CDS-r6.27_PA dmel-all-transposon-r6.27　dmel-all-ncRNA-r6.27_RA　"
+NN="SRR1746863 SRR1746864 SRR1746865 SRR1746870 SRR1746871 SRR1746872"
+O=".fas.gz"
+for L in ${LL}; do
+for N in  ${NN}; do
+echo $N
+( bowtie --offrate 3 -p 10 -a --best --strata -v 2 -m 1 -t --sam ${L} -f /home/kshoji/Gawain/NGSdata/sra/${N}${O}  > ${N}_${L}.sam )  
+samtools view -@ 10 -bS ${N}_${L}.sam> ${N}_${L}.bam
+bamToBed -i ${N}_${L}.bam > ${N}_${L}.bed
+awk '$3-$2>23 && $3-$2<30' ${N}_${L}.bed >${N}_${L}_piRNA.bed
+coverageBed -a ${L}.bed -b ${N}_${L}_piRNA.bed > ${N}_${L}_piRNA_cov.txt
+coverageBed -a ${L}.bed -b ${N}_${L}_piRNA.bed -S > ${N}_${L}_piRNA_as_cov.txt
+rm ${N}_${L}_piRNA.sam
+rm ${N}_${L}_piRNA.bam
+done
+done
+
+
+LL="dmel-all-CDS-r6.27_PA dmel-all-transposon-r6.27 dmel-all-ncRNA-r6.27_RA　"
+NN="SRR2147092"
+O1="_1.fastq"
+O2="_2.fastq"
+for L in ${LL}; do
+for N in  ${NN}; do
+echo $N
+hisat2 -x ${L} -1 /home/kshoji/Gawain/NGSdata/sra/${N}${O1}  -2 /home/kshoji/Gawain/NGSdata/sra/${N}${O2} -k 3 -p 10 -S ${N}_${L}_RNA_HS2.sam
+samtools view -@ 10 -bS ${N}_${L}_RNA_HS2.sam> ${N}_${L}_RNA_HS2.bam
+bamToBed -i ${N}_${L}_RNA_HS2.bam > ${N}_${L}_RNA_HS2.bed
+rm ${N}_${L}_RNA_HS2.sam
+rm ${N}_${L}_RNA_HS2.bam
+coverageBed -a /home/kshoji/Gawain/REFdata/${L}.bed -b ${N}_${L}_RNA_HS2.bed > ${N}_${L}_RNA_HS2_cov.txt
+done
+done
+done
+
+
+
+#####
+#R#
+#####
+
+# Load the Biostrings library for biological string handling
+library(Biostrings)
+
+# Read DNA sequences from a FASTA file containing coding sequences (CDS) of D. melanogaster
+fas <- readDNAStringSet("dmel-all-CDS-r6.27_PA.fasta")
+
+# Read .bed files containing piRNA data for different samples
+R3 <- read.table("SRR1746863_dmel-all-CDS-r6.27_PA_piRNA.bed")
+R4 <- read.table("SRR1746864_dmel-all-CDS-r6.27_PA_piRNA.bed")
+R5 <- read.table("SRR1746865_dmel-all-CDS-r6.27_PA_piRNA.bed")
+
+# Clean the names of the sequences by removing spaces and everything after
+fasnames <- gsub("\\s.*", "", names(fas))
+
+# Create contingency tables for each sample by comparing the piRNA data to the CDS names
+tab3 <- table(factor(R3[,1], levels=fasnames), R3[,6])
+tab4 <- table(factor(R4[,1], levels=fasnames), R4[,6])
+tab5 <- table(factor(R5[,1], levels=fasnames), R5[,6])
+
+# Sum the contingency tables across the three samples to get a combined table
+tabs <- tab3 + tab4 + tab5
+
+# Calculate and display the sum of elements in the first column of the combined table that are greater than zero
+sum(tabs[,1] > 0)
+sum(tabs[,1] > 0)  # This line seems to be repeated, possibly for verification
+
+# Create and display a table comparing whether elements in the first and second columns of the combined table are greater than zero
+table(tabs[,1] > 0, tabs[,2] > 0)
+
+# Write the combined contingency table to a text file
+write.table(tabs, "230527_Dro_CDS_PA_piRNA.txt", sep="\t") 
+
+
+# Load the Biostrings library for biological string handling
+library(Biostrings)
+
+# Read .bed files containing data for CDS for different samples
+R3 <- read.table("SRR1746863_dmel-all-CDS-r6.27_PA.bed")
+R4 <- read.table("SRR1746864_dmel-all-CDS-r6.27_PA.bed")
+R5 <- read.table("SRR1746865_dmel-all-CDS-r6.27_PA.bed")
+
+# Read .bed files containing data for transposons for different samples
+R3T <- read.table("SRR1746863_dmel-all-transposon-r6.27.bed")
+R4T <- read.table("SRR1746864_dmel-all-transposon-r6.27.bed")
+R5T <- read.table("SRR1746865_dmel-all-transposon-r6.27.bed")
+
+# Read DNA sequences from .fas files for different samples
+fasR3 <- readDNAStringSet("/home/kshoji/Gawain/NGSdata/sra/SRR1746863.fas.gz")
+fasR4 <- readDNAStringSet("/home/kshoji/Gawain/NGSdata/sra/SRR1746864.fas.gz")
+fasR5 <- readDNAStringSet("/home/kshoji/Gawain/NGSdata/sra/SRR1746865.fas.gz")
+
+# Clean the names of the sequences by removing spaces and everything after
+fasR3names <- gsub("\\s.*", "", names(fasR3))
+fasR4names <- gsub("\\s.*", "", names(fasR4))
+fasR5names <- gsub("\\s.*", "", names(fasR5))
+
+# Read table containing piRNA data for comparison
+tabs <- read.table("230527_Dro_CDS_PA_piRNA.txt") 
+R3table <- read.table("SRR1746863_dmel-all-CDS-r6.27_PA_piRNA_cov.txt")
+
+# Classify genes as ppgene or gene based on piRNA data
+ppgene <- R3table[tabs[,1] > 0,1]
+gene <- R3table[!tabs[,1] > 0,1]
+
+# Extract sequences from fas files that match gene or ppgene
+fasR3g <- fasR3[is.element(fasR3names,R3[is.element(R3[,1],gene),4])]
+fasR4g <- fasR4[is.element(fasR4names,R4[is.element(R4[,1],gene),4])]
+fasR5g <- fasR5[is.element(fasR5names,R5[is.element(R5[,1],gene),4])]
+
+fasR3p <- fasR3[is.element(fasR3names,R3[is.element(R3[,1],ppgene),4])]
+fasR4p <- fasR4[is.element(fasR4names,R4[is.element(R4[,1],ppgene),4])]
+fasR5p <- fasR5[is.element(fasR5names,R5[is.element(R5[,1],ppgene),4])]
+
+# Extract sequences from fas files that match transposon
+fasR3t <- fasR3[is.element(fasR3names,R3T[,4])]
+fasR4t <- fasR4[is.element(fasR4names,R4T[,4])]
+fasR5t <- fasR5[is.element(fasR5names,R5T[,4])]
+
+# Filter sequences by length (between 23 and 30)
+fasR3g2 <- fasR3g[width(fasR3g) > 23 & width(fasR3g) < 30]
+fasR4g2 <- fasR4g[width(fasR4g) > 23 & width(fasR4g) < 30]
+fasR5g2 <- fasR5g[width(fasR5g) > 23 & width(fasR5g) < 30]
+
+fasR3p2 <- fasR3p[width(fasR3p) > 23 & width(fasR3p) < 30]
+fasR4p2 <- fasR4p[width(fasR4p) > 23 & width(fasR4p) < 30]
+fasR5p2 <- fasR5p[width(fasR5p) > 23 & width(fasR5p) < 30]
+
+fasR3t2 <- fasR3t[width(fasR3t) > 23 & width(fasR3t) < 30]
+fasR4t2 <- fasR4t[width(fasR4t) > 23 & width(fasR4t) < 30]
+fasR5t2 <- fasR5t[width(fasR5t) > 23 & width(fasR5t) < 30]
+
+# Create matrices for gene, ppgene, and transposon data by counting the occurrences of each width
+MAT1_dr_gene <- rbind(table(c(20:45, width(fasR3g))),
+                      table(c(20:45, width(fasR4g))),
+                      table(c(20:45, width(fasR5g)))) - 1
+
+MAT1_dr_ppgene <- rbind(table(c(20:45, width(fasR3p))),
+                        table(c(20:45, width(fasR4p))),
+                        table(c(20:45, width(fasR5p)))) - 1
+
+MAT1_dr_transposon <- rbind(table(c(20:45, width(fasR3t))),
+                            table(c(20:45, width(fasR4t))),
+                            table(c(20:45, width(fasR5t)))) - 1
+                            
+# Write the resulting matrices to files for genes, ppgenes, and transposons
+write.table(MAT1_dr_gene, "230529_MAT1_dm_gene_table.txt", quote = TRUE, sep = "\t")
+write.table(MAT1_dr_ppgene, "230529_MAT1_dm_ppgene_table.txt", quote = TRUE, sep = "\t")
+write.table(MAT1_dr_transposon, "230529_MAT1_dm_transposon_table.txt", quote = TRUE, sep = "\t")
+
+
+
+
+# Define the list of labels for genetic elements (CDS and transposons) and sample names
+LL="dmel-all-CDS-r6.27_PA dmel-all-transposon-r6.27"
+NN="SRR21098282 SRR21098281 SRR21098280 SRR21098279 SRR21098278 SRR21098277"
+O="_trim.fasta.gz"
+
+# Loop through each label (genetic element) and each sample name
+for L in ${LL}; do
+    for N in ${NN}; do
+        echo $N  # Print the current sample name
+
+        # Align the sequences to the reference using Bowtie, outputting the result in SAM format
+        (bowtie --offrate 3 -p 10 -a --best --strata -v 2 -m 1 -t --sam ${L} -f /home/kshoji/Gawain/NGSdata/sra/${N}${O} > ${N}_${L}.sam)  
+
+        # Convert the SAM file to a BAM file using samtools
+        samtools view -@ 10 -bS ${N}_${L}.sam > ${N}_${L}.bam
+
+        # Convert the BAM file to a BED file using bamToBed
+        bamToBed -i ${N}_${L}.bam > ${N}_${L}.bed
+
+        # Filter the BED file for piRNA (length between 26 and 32) and save it
+        awk '$3-$2>25 && $3-$2<33' ${N}_${L}.bed > ${N}_${L}_piRNA.bed
+
+        # Remove the intermediate BAM and SAM files to save space
+        rm ${N}_${L}.bam
+        rm ${N}_${L}.sam
+
+        # Another filtering step for piRNA (length between 26 and 39), seems redundant or a correction to the previous filter
+        awk '$3-$2>25 && $3-$2<40' ${N}_${L}.bed > ${N}_${L}_piRNA.bed
+
+        # Calculate coverage statistics using coverageBed, outputs coverage data for piRNA
+        coverageBed -a /home/kshoji/Gawain/REFdata/${L}.bed -b ${N}_${L}_piRNA.bed > ${N}_${L}_piRNA_cov.txt
+
+        # Calculate antisense coverage statistics using coverageBed, outputs antisense coverage data for piRNA
+        coverageBed -a /home/kshoji/Gawain/REFdata/${L}.bed -b ${N}_${L}_piRNA.bed -S > ${N}_${L}_piRNA_as_cov.txt
+    done
+done
+
+
+# Define sample names and total read counts for each sample
+names <- c("SRR21098282","SRR21098281","SRR21098280","SRR21098279","SRR21098278","SRR21098277")
+total <- c(26956258,19533205,32218687,20083836,22295401,23741961)
+
+# Define the categories of genetic elements to be analyzed (CDS and transposons)
+tagnames <- c("dmel-all-CDS-r6.27_PA","dmel-all-transposon-r6.27")
+
+# Initialize matrices for storing piRNA coverage data and antisense piRNA coverage data
+DR_data <- matrix(0, 11741 + 5392, 6)
+DR_data_as <- matrix(0, 11741 + 5392, 6)
+
+# Initialize a vector to store lengths of sequences
+DR_len <- rep(0, 11741 + 5392)
+
+# Define sections for each category of genetic elements
+sec <- list(1:11741, (11741 + 1):(11741 + 5392))
+
+# Read piRNA coverage data and antisense piRNA coverage data from files
+for(i in 1:2) {
+  for(j in 1:6) {
+    DR_data[sec[[i]], j] <- read.table(paste0(names[j], "_", tagnames[i], "_piRNA_cov.txt"))[, 7]
+    DR_data_as[sec[[i]], j] <- read.table(paste0(names[j], "_", tagnames[i], "_piRNA_as_cov.txt"))[, 7]
+  }
+}
+
+# Set row names of the DR_data and DR_data_as matrices to the IDs from the first sample's piRNA coverage files
+rownames(DR_data) <- c(read.table(paste0(names[1], "_", tagnames[1], "_piRNA_cov.txt"))[, 1], read.table(paste0(names[1], "_", tagnames[2], "_piRNA_cov.txt"))[, 1])
+rownames(DR_data_as) <- rownames(DR_data)
+
+# Read lengths of sequences from the antisense piRNA coverage file of the first sample for each category of genetic elements
+for(i in 1:2) {
+  DR_len[sec[[i]]] <- read.table(paste0("SRR21098282_", tagnames[i], "_piRNA_as_cov.txt"))[, 3]
+}
+
+# Write the piRNA coverage data, antisense piRNA coverage data, and lengths to text files
+write.table(DR_data, "230809_Dr_tes_CDS_DR_data.txt", quote = FALSE, sep = "\t")
+write.table(DR_data_as, "230809_Dr_tes_CDS_DR_data_as.txt", quote = FALSE, sep = "\t")
+write.table(DR_len, "230809_Dr_tes_CDS_DR_len.txt", quote = FALSE, sep = "\t")
