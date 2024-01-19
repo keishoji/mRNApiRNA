@@ -6,17 +6,17 @@ Keisuke Shoji, Yukihide Tomari, A potential role of inefficient and non-specific
 https://www.biorxiv.org/content/XXXXXX
 
 # Contents:
-## Making graphs (Drosophila)
-## Making graphs (Silkworm data)
-## Making graphs (mice)
+・Making graphs (Drosophila)
+・Making graphs (Silkworm data)
+・Making graphs (mice)
 Making graphs for figure	
 
-## data preparation (Drosophila)	
-## data preparation (Silkworm)
-## data preparation (mice)
+・data preparation (Drosophila)	
+・data preparation (Silkworm)
+・data preparation (mice)
 data preparation　for making graphs
 	
-## extra data (silkworm)
+・extra data (silkworm)
 extra data
 
 # Tools:
