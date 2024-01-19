@@ -1,0 +1,372 @@
+
+
+######
+#bash
+#####
+
+LL="transposon KWMTBOMO BmMLV"
+NN="170714_17_BmN4_GFPKO 170714_18_BmN4_Ago2KO 170714_19_BmN4_SiwiKO 181220_O1_Naïve_Total_NaIO4p 181220_P1_Naïve_Total_NaIO4m 181220_Q1_Naive_SiwiIP_NaIO4m 181220_R1_Naive_BmAgo3IP_NaIO4m 2015_018B_C1_Luc_28 2015_018B_C3_Zuc_26"
+O="_trim.fasta.gz"
+for L in ${LL}; do
+for N in  ${NN}; do
+echo $N
+(bowtie --offrate 3 -p 20 -a --best --strata -v 2 -m 1 -t --sam ${L} -f /home/kshoji/Gawain/NGSdata/${N}${O} > ${N}_${L}.sam )
+samtools view -@ 10 -bS ${N}_${L}.sam> ${N}_${L}.bam
+bamToBed -i ${N}_${L}.bam > ${N}_${L}.bed
+rm ${N}_${L}.sam
+rm ${N}_${L}.bam
+
+awk '$3-$2>25' ${N}_${L}.bed > ${N}_${L}_piRNA.bed
+
+done
+done
+
+
+####
+#Definition of gene types (in R)
+####
+names3 <- c("transposon","KWMTBOMO","BmMLV")
+
+# Definition of RNABOX and its names
+line1 <- nrow(read.table(paste0(names3[1],".bed")))
+line2 <- nrow(read.table(paste0(names3[2],".bed")))
+line3 <- nrow(read.table(paste0(names3[3],".bed")))
+RNABOX <- rep(0,line1+line2+line3)
+names(RNABOX) <- c(as.character(read.table(paste0(names3[1],".bed"))[,1]),
+                   as.character(read.table(paste0(names3[2],".bed"))[,1]),
+                   as.character(read.table(paste0(names3[3],".bed"))[,1]))
+
+# Initialization of piRNABOX variables
+piRNABOXp <- RNABOX
+piRNABOXm <- RNABOX
+
+# Loop to fill piRNABOXp and piRNABOXm
+# Ensure that the files and paths used here are correctly specified
+for(i in 1:3){
+    piRNABOXp[targets[[i]]] <- read.table(paste0("path_to_data/",names1[j],"_",names3[i],"_piRNA_p.txt"))[,7]
+    piRNABOXm[targets[[i]]] <- read.table(paste0("path_to_data/",names1[j],"_",names3[i],"_piRNA_m.txt"))[,7]
+}
+
+# Calculations for piRNABOXp2 and piRNABOXm2
+RNAtotal <- 145975016  # This should be correctly defined based on your data
+piRNABOXp2 <- (piRNABOXp/lenVec*1000)/RNAtotal*1000000
+piRNABOXm2 <- (piRNABOXm/lenVec*1000)/RNAtotal*1000000
+
+# Definition of transposon, transgene, BmMLV, and related variables
+transposon <- c(rep(T, 1811), rep(F, (line1+line2+line3)-1811))
+transgene <- is.element(names(piRNABOX), as.character(read.table("KWMTBOMO_transposongenelist.txt")[,1]))
+BmMLV <- names(RNABOX)=="BmMLV"
+
+# Definition of frame1 with example variables RNA, piRNA, siRNA (you'll need to adjust this based on actual data)
+frame1 <- cbind(log2(RNABOX2+0.001), log2(piRNABOX2+0.001), log2(siRNABOX2+0.001))
+colnames(frame1) <- c("RNA", "piRNA", "siRNA")  # Adjust column names based on actual data structure
+
+# Definition of the 'tag' variable based on a condition (you'll need to adjust the condition based on your needs)
+tag <- log2(piRNABOX2+0.1) > log2(RNABOX2+0.1)/2 & !transposon & !transgene & !rownames(RNABOX2)=="BmMLV5"
+
+
+# This is an example based on your script. Make sure these variables are correctly defined in your context.
+layer1 <- rep("gene", nrow(frame1))                               
+layer1[transposon] <- "transposon"
+layer1[transgene] <- "trapgene"
+layer1[BmMLV] <- "BmMLV"
+
+layer2 <- layer1
+layer2[tag] <- "piRNAprodgene"
+
+layer3 <- layer1
+sense_p <- piRNABOXp2/(piRNABOXp2+piRNABOXm2)
+layer3[sense_p < 1 & layer1=="gene"] <- "ppgene"
+
+# Further modifications for layer3a, layer3b, layer3c, layer3d, and layer3a2
+layer3a <- layer3
+layer3a[!layer3=="gene"] <- "Z"
+
+layer3b <- layer3
+layer3b[!layer3=="ppgene"] <- "Z"
+
+layer3c <- layer3
+layer3c[!layer3=="trapgene"] <- "Z"
+
+layer3d <- layer3
+layer3d[!layer3=="transposon"] <- "Z"
+
+layer3a2 <- layer3a
+
+# Creation of frame3 and frame4 based on the above variables
+frame3 <- data.frame(frame1, layer3a2, layer3b, layer3c, layer3d)[1:18691,]
+frame4 <- data.frame(frame1, layer3e, layer3f)
+
+# Modifications for layer3a2 based on the conditions in frame3
+layer3a2[frame3[,2] == log2(0.001)] <- "Z"
+
+
+# Initialize a matrix named 'piRNABOX' with rows equal to the sum of elements in 3 categories and 3 columns
+piRNABOX <- matrix(0,1811+16880+3,7)
+
+# Set row names of 'piRNABOX' 
+rownames(piRNABOX) <- c(as.character(read.table("transposon.bed")[,1]),
+                        as.character(read.table("KWMTBOMO.bed")[,1]),
+                        as.character(read.table("BmMLV5.bed")[,1]))
+snRNABOX <- piRNABOX
+
+
+# Set row names of 'lenVec' similarly to 'RNABOX' row names          
+lenVec <- c(as.numeric(as.character(read.table("transposon.bed")[,3])),
+            as.numeric(as.character(read.table("KWMTBOMO.bed")[,3])),
+            as.numeric(as.character(read.table("BmMLV5.bed")[,3])))
+            
+
+# Set column names for 'piRNABOX'
+colnames(piRNABOX) <- c("GFPKO", "Ago2KO", "SiwiKO", "Luc1", "Zuc1", "Luc2", "Zuc2")
+
+# Define 'targets' as a list of numerical ranges, representing indices in 'piRNABOX'
+targets <- list(1:1811, 1812:(1811+16880), (1811+16880+1):(1811+16880+3))
+
+# Loop over the range of 'targets' and column indices
+for(i in 1:3){
+  for(j in 1:3){
+    # Populate 'piRNABOX' with data from specific files (file naming pattern is used)
+        snRNABOX[targets[[i]],j] <- read.table(paste0("170714_",names2[j],"_",names3[i],"_snRNA.txt"))[,7]
+    piRNABOX[targets[[i]], j] <- read.table(paste0("170714_", names2[j], "_", names3[i], "_piRNA.txt"))[,7]
+  }
+}
+
+# Initialize a logical vector 'R4' of length equal to the number of rows in 'piRNABOX'
+R4 <- c(rep(F, 1705), T, rep(F, 18694-1706))
+
+# Normalize 'piRNABOX' data and store in 'piRNABOX2'
+piRNABOX2 <- sweep(sweep(piRNABOX, 1, lenVec, "/") * 1000, 2, apply(sweep(snRNABOX, 1, lenVec, "/")[!R4, ] * 1000, 2, sum), "/") * 1000000
+
+# Compute quantiles of log-transformed 'piRNABOX2' data for the first target group where values in the first column are >0
+qt <- quantile(log2(piRNABOX2[is.element(1:nrow(piRNABOX2), targets[[1]]) & piRNABOX2[, 1] > 0, 1]))
+
+# Create logical vectors 'tg1', 'tg2', 'tg3', 'tg4' based on quantile thresholds
+# These vectors flag the rows in 'piRNABOX2' that fall into specific quantile ranges for the first target group
+tg1 <- log2(piRNABOX2[, 1]) < qt[2] & 0 < piRNABOX2[, 1] & is.element(1:nrow(piRNABOX2), targets[[1]])
+tg2 <- log2(piRNABOX2[, 1]) < qt[3] & qt[2] <= log2(piRNABOX2[, 1]) & is.element(1:nrow(piRNABOX2), targets[[1]])
+tg3 <- log2(piRNABOX2[, 1]) < qt[4] & qt[3] <= log2(piRNABOX2[, 1]) & is.element(1:nrow(piRNABOX2), targets[[1]])
+tg4 <- log2(piRNABOX2[, 1]) < qt[5] & qt[4] <= log2(piRNABOX2[, 1]) & is.element(1:nrow(piRNABOX2), targets[[1]])
+
+
+# The final write.table command
+write.table(names(RNABOX)[layer3a2=="gene"], "231110_layer3_gene_list.txt", quote=F, row.names=F, col.names=F)
+write.table(rownames(RNABOX)[layer3=="BmMLV"],"230512_layer3_BmMLV_list.txt",quote=F,row.names=F,col.names=F)
+write.table(rownames(RNABOX)[layer3=="ppgene"],"230512_layer3_ppgene_list.txt",quote=F,row.names=F,col.names=F)
+write.table(rownames(RNABOX)[layer3=="trapgene"],"230512_layer3_trapgene_list.txt",quote=F,row.names=F,col.names=F)
+write.table(rownames(RNABOX2)[tg2|tg1],"230512_low_exp_transposon_list.txt",quote=F,row.names=F,col.names=F)
+write.table(rownames(RNABOX2)[tg3|tg4],"230512_high_exp_transposon_list.txt",quote=F,row.names=F,col.names=F)
+
+
+#####
+#bash
+#####
+# Define a string with the names of datasets to be processed.
+NN="170714_17_BmN4_GFPKO 170714_18_BmN4_Ago2KO 170714_19_BmN4_SiwiKO 181220_O1_Naïve_Total_NaIO4p 181220_P1_Naïve_Total_NaIO4m 181220_Q1_Naive_SiwiIP_NaIO4m 181220_R1_Naive_BmAgo3IP_NaIO4m 2015_018B_C1_Luc_28 2015_018B_C3_Zuc_26"
+
+# Loop over each dataset name in NN
+for N in ${NN}; do
+    echo $N
+
+    # Filter BED files for specific gene lists and create new files for each filtered list
+    grep -f 231110_layer3_gene_list.txt ${N}_KWMTBOMO.bed > ${N}_KWMTBOMO_layer3_gene2.bed
+    grep -f 230512_layer3_trapgene_list.txt ${M}${N}_KWMTBOMO.bed > ${M}${N}_KWMTBOMO_layer3_trapgene.bed
+    grep -f 230512_layer3_ppgene_list.txt ${M}${N}_KWMTBOMO.bed > ${M}${N}_KWMTBOMO_layer3_ppgene.bed
+    grep -f 230512_low_exp_transposon_list.txt ${M}${N}_transposon.bed > ${M}${N}_low_exp_transposon.bed
+    grep -f 230512_high_exp_transposon_list.txt ${M}${N}_transposon.bed > ${M}${N}_high_exp_transposon.bed
+done
+
+# Load necessary R library
+library(Biostrings)
+
+# Define names of the datasets to process
+names <- c("181220_O1_Naïve_Total_NaIO4p")
+
+# Loop through each name in the 'names' list
+for(j in 1:length(names)){
+    # Read data from the bed files into R data frames
+    gene1 <- read.table(paste0(names[j],"_KWMTBOMO_layer3_gene2.bed"))
+    gene2 <- read.table(paste0(names[j],"_KWMTBOMO_layer3_trapgene.bed"))
+    gene3 <- read.table(paste0(names[j],"_KWMTBOMO_layer3_ppgene.bed"))
+    trap1 <- read.table(paste0(names[j],"_low_exp_transposon.bed"))
+    trap2 <- read.table(paste0(names[j],"_high_exp_transposon.bed"))
+    BmMLV1 <- read.table(paste0(names[j],"_BmMLV.bed"))
+
+    # Filter the second trap2 dataset
+    trap2a <- trap2[!trap2[,1]=="TE1_bm_1645_LINE/R4",]
+    trap2b <- trap2[trap2[,1]=="TE1_bm_1645_LINE/R4",]
+
+    # Load the DNA sequence data set
+    fasta <- readDNAStringSet(paste0("/home/kshoji/Gawain/NGSdata/",names[j],"_trim.fasta.gz"))
+
+    # Extract the names of the sequences
+    fasnames <- sub(" .*", "", names(fasta))
+
+    # Create subsets of the fasta sequences based on the gene lists
+    fas_g1 <- fasta[is.element(fasnames,gene1[,4])]
+    fas_g2 <- fasta[is.element(fasnames,gene2[,4])]
+    fas_g3 <- fasta[is.element(fasnames,gene3[,4])]
+    fas_t1 <- fasta[is.element(fasnames,trap1[,4])]
+    fas_t2 <- fasta[is.element(fasnames,trap2a[,4])]
+    fas_t3 <- fasta[is.element(fasnames,trap2b[,4])]
+    fas_M1 <- fasta[is.element(fasnames,BmMLV1[,4])]
+
+    # Write the subsets to fasta files
+    writeXStringSet(fas_g1, paste0(names[j],"_KWMTBOMO_layer3_gene2.fasta"))
+    writeXStringSet(fas_g2, paste0(names[j],"_KWMTBOMO_layer3_trapgene.fasta"))
+    writeXStringSet(fas_g3, paste0(names[j],"_KWMTBOMO_layer3_ppgene.fasta"))
+    writeXStringSet(fas_t1, paste0(names[j],"_low_exp_transposon.fasta"))
+    writeXStringSet(fas_t2, paste0(names[j],"_high_exp_transposon.fasta"))
+    writeXStringSet(fas_t3, paste0(names[j],"_rRNA_transposon.fasta"))
+    writeXStringSet(fas_M1, paste0(names[j],"_BmMLV.fasta"))
+
+    # Output the progress
+    cat(j)
+}
+
+
+# Load necessary R library
+library(Biostrings)
+
+# Define names of the datasets to process
+names <- c("170714_17_BmN4_GFPKO","170714_18_BmN4_Ago2KO","170714_19_BmN4_SiwiKO","181220_O1_Naïve_Total_NaIO4p","181220_P1_Naïve_Total_NaIO4m","181220_Q1_Naive_SiwiIP_NaIO4m","181220_R1_Naive_BmAgo3IP_NaIO4m","2015_018B_C1_Luc_28","2015_018B_C3_Zuc_26")
+
+# Initialize matrices for each category to store the data
+MAT_g1 <- matrix(0, length(names), 26)
+rownames(MAT_g1) <- names
+colnames(MAT_g1) <- 20:45
+
+# Initialize matrices for other categories similar to MAT_g1
+MAT_g2 <- MAT_g1
+MAT_g3 <- MAT_g1
+MAT_t12 <- MAT_g1
+MAT_t3 <- MAT_g1
+MAT_M1 <- MAT_g1
+
+# Loop through each name in the 'names' list
+for(j in 1:length(names)){
+    # Load the DNA sequence data set for each category
+    fas_g1 <- readDNAStringSet(paste0(names[j],"_KWMTBOMO_layer3_gene2.fasta"))
+    fas_g2 <- readDNAStringSet(paste0(names[j],"_KWMTBOMO_layer3_trapgene.fasta"))
+    fas_g3 <- readDNAStringSet(paste0(names[j],"_KWMTBOMO_layer3_ppgene.fasta"))
+    fas_t1 <- readDNAStringSet(paste0(names[j],"_low_exp_transposon.fasta"))
+    fas_t2 <- readDNAStringSet(paste0(names[j],"_high_exp_transposon.fasta"))
+    fas_t3 <- readDNAStringSet(paste0(names[j],"_rRNA_transposon_piRNA.fasta"))
+    # Read DNA sequences for rRNA transposon and combined transposons (t12)
+    fas_t12 <- c(fas_t1, fas_t2)
+    fas_M1 <- readDNAStringSet(paste0(names[j],"_BmMLV.fasta"))
+
+    # Calculate the distribution of sequence lengths for each category and store in respective matrices
+    # The '-1' is used to adjust the counts (since the 'table' function includes '0')
+    MAT_g1[j,] <- table(c(20:45, width(fas_g1))) - 1
+    MAT_g2[j,] <- table(c(20:45, width(fas_g2))) - 1
+    MAT_g3[j,] <- table(c(20:45, width(fas_g3))) - 1
+    MAT_t12[j,] <- table(c(20:45, width(fas_t12))) - 1
+    MAT_t3[j,] <- table(c(20:45, width(fas_t3))) - 1
+    MAT_M1[j,] <- table(c(20:45, width(fas_M1))) - 1
+
+    # Output the progress
+    cat(j)
+}
+
+# Write the matrices to files for further analysis or record keeping
+write.table(MAT_g1, "231122_MAT_g1_table.txt", quote = T, sep = "\t")
+write.table(MAT_g2, "231122_MAT_g2_table.txt", quote = T, sep = "\t")
+write.table(MAT_g3, "231122_MAT_g3_table.txt", quote = T, sep = "\t")
+write.table(MAT_t12, "231122_MAT_t12_table.txt", quote = T, sep = "\t")
+write.table(MAT_t3, "231122_MAT_t3_table.txt", quote = T, sep = "\t")
+write.table(MAT_M1, "231122_MAT_MLV1_table.txt", quote = T, sep = "\t")
+
+
+
+
+#for Siwi DA data
+
+#############
+#bash
+#############
+# Define variables for input file paths and names
+LL="transposon KWMTBOMO BmMLV"
+M="190708_"
+NN="S1_Naive S2_GFP S3_Ago3 S4_Ago3DA S5_Siwi S6_SiwiDA S7_Vasa S8_VasaEQ S9_VasaEQ_SiwiDA S10_Naive S11_GFP S12_Ago3 S13_Ago3DA S14_Siwi S15_SiwiDA S16_Vasa S17_VasaEQ S18_VasaEQ_SiwiDA"
+O="_trim.fasta.gz"
+
+# Loop over LL and NN to process files
+for L in ${LL}; do
+    for N in  ${NN}; do
+        echo $N
+        # Align sequences using bowtie and convert the output to SAM format
+        (bowtie --offrate 3 -p 10 -a --best --strata -v 2 -m 1 -t --sam ${L} -f /home/kshoji/Gawain/NGSdata/${M}${N}${O} > ${M}${N}_${L}.sam )
+        
+        # Convert SAM to BAM, then to BED, and remove intermediary files
+        samtools view -@ 10 -bS ${M}${N}_${L}.sam > ${M}${N}_${L}.bam
+        bamToBed -i ${M}${N}_${L}.bam > ${M}${N}_${L}.bed
+        rm ${M}${N}_${L}.sam
+        rm ${M}${N}_${L}.bam
+
+        # Classify reads as siRNA or piRNA based on length, then calculate coverage
+        awk '$3-$2<23' ${M}${N}_${L}.bed > ${M}${N}_${L}_siRNA.bed
+        awk '$3-$2>25' ${M}${N}_${L}.bed > ${M}${N}_${L}_piRNA.bed
+        coverageBed -b ${M}${N}_${L}_piRNA.bed -a /home/kshoji/Gawain/REFdata/${L}.bed > ${M}${N}_${L}_piRNA.txt
+        coverageBed -b ${M}${N}_${L}_siRNA.bed -a /home/kshoji/Gawain/REFdata/${L}.bed > ${M}${N}_${L}_siRNA.txt
+        coverageBed -b ${M}${N}_${L}.bed -a /home/kshoji/Gawain/REFdata/${L}.bed > ${M}${N}_${L}_snRNA.txt
+        coverageBed -b ${M}${N}_${L}_piRNA.bed -a /home/kshoji/Gawain/REFdata/${L}.bed -s > ${M}${N}_${L}_piRNA_p.txt
+        coverageBed -b ${M}${N}_${L}_siRNA.bed -a /home/kshoji/Gawain/REFdata/${L}.bed -s > ${M}${N}_${L}_siRNA_p.txt
+        coverageBed -b ${M}${N}_${L}_piRNA.bed -a /home/kshoji/Gawain/REFdata/${L}.bed -S > ${M}${N}_${L}_piRNA_m.txt
+        coverageBed -b ${M}${N}_${L}_siRNA.bed -a /home/kshoji/Gawain/REFdata/${L}.bed -S > ${M}${N}_${L}_siRNA_m.txt
+    done
+done
+
+
+
+#############
+#R
+#############
+# Initialize variables and read in data for RNA analysis
+names1 <- c("S1_Naive", "S2_GFP", "S3_Ago3", "S4_Ago3DA", "S5_Siwi", "S6_SiwiDA", "S7_Vasa", "S8_VasaEQ", "S9_VasaEQ_SiwiDA", "S10_Naive", "S11_GFP", "S12_Ago3", "S13_Ago3DA", "S14_Siwi", "S15_SiwiDA", "S16_Vasa", "S17_VasaEQ", "S18_VasaEQ_SiwiDA")
+names3 <- c("transposon", "KWMTBOMO", "BmMLV")
+normF <- c(28016310, 39638334, 34260591, 31265437, 34292635, 33353867, 37727950, 35898446, 34717761, 36648056, 32319416, 33153464, 32877322, 32157615, 34971336, 28029925, 36281325, 31669252)
+
+# Count the number of lines (entries) in the .bed files for different RNA types
+line1 <- nrow(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[1], ".bed")))
+line2 <- nrow(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[2], ".bed")))
+line3 <- nrow(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[3], ".bed")))
+
+# Initialize a matrix to store RNA data with row and column names
+RNABOX <- matrix(0, line1 + line2 + line3, length(names1))
+rownames(RNABOX) <- c(as.character(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[1], ".bed"))[, 1]),
+                      as.character(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[2], ".bed"))[, 1]),
+                      "MLV_rdrp", "MLV_cp", "MLV_p40")
+colnames(RNABOX) <- names1
+
+# Read the length of the sequences from .bed files and store in lenVec
+lenVec <- as.numeric(c(as.character(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[1], ".bed"))[, 3]),
+                       as.character(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[2], ".bed"))[, 3]),
+                       as.character(read.table(paste0("/home/kshoji/Gawain/REFdata/", names3[3], ".bed"))[, 3])))
+
+# Initialize piRNABOX and siRNABOX matrices for storing piRNA and siRNA data
+piRNABOX <- RNABOX
+siRNABOX <- RNABOX
+
+# Define targets list for indexing different RNA types
+targets <- list(1:line1, (line1 + 1):(line1 + line2), (line1 + line2 + 1):(line1 + line2 + line3))
+
+# Loop through names1 and names3 arrays to read siRNA and piRNA data files
+for (j in 1:length(names1)) {
+    for (i in 1:3) {
+        siRNABOX[targets[[i]], j] <- read.table(paste0("190708_", names1[j], "_", names3[i], "_siRNA.txt"))[, 7]
+        piRNABOX[targets[[i]], j] <- read.table(paste0("190708_", names1[j], "_", names3[i], "_piRNA.txt"))[, 7]
+    }
+}
+
+# Initialize a logical vector to mark specific RNA sequences
+R4 <- c(rep(FALSE, 1705), TRUE, rep(FALSE, (line1 + line2 + line3) - 1706))
+
+# Normalize siRNA and piRNA data
+a <- sweep(snRNABOX, 1, lenVec, "/") * 1000
+siRNABOX2 <- sweep(sweep(siRNABOX, 1, lenVec, "/") * 1000, 2, normF, "/") * 1000000
+piRNABOX2 <- sweep(sweep(piRNABOX, 1, lenVec, "/") * 1000, 2, normF, "/") * 1000000
+
+# Save the normalized piRNA and siRNA data to files
+write.table(piRNABOX2, "230601_benny_piRNABOX2.txt", quote = FALSE, sep = "\t")
+write.table(siRNABOX2, "230601_benny_siRNABOX2.txt", quote = FALSE, sep = "\t")
