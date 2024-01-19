@@ -1,0 +1,131 @@
+# Set the working directory to the specified path
+setwd("~/Desktop/datas/info/BmMLV")
+
+# Load necessary libraries for bioinformatics and data visualization
+library(Biostrings)
+library(ggplot2)
+library(tidyverse)
+library(RColorBrewer)
+
+# Define color palettes for plotting
+cols <- brewer.pal(5, "Set1")
+cols2 <- brewer.pal(6, "Set1")
+cols3 <- brewer.pal(8, "Set1")[c(2,3,7,8,5)]
+
+# Read in data regarding gene length, lncRNA length, ZucKO gene RPKM, and RNA gene RPKM
+len <- read.table("230714_mouse_piRNA_gene_length.txt")
+lenl <- read.table("230714_mouse_piRNA_lncRNA_length.txt")
+RPKMZ <- read.table("230714_mouse_piRNA_ZucKO_gene.txt")
+RPKM <- read.table("230714_mouse_piRNA_RNA_gene.txt")
+colnames(RPKM) <- c("MIWI", "MILI", "RNA")
+
+# Read in data regarding piRNA tags for genes and lncRNA
+tag <- read.table("230714_mouse_piRNA_tag_gene.txt")[,1]
+tagl <- read.table("230714_mouse_piRNA_tag_lncRNA.txt")[,1]
+
+# Read in RPKM data for lncRNA and transposon
+RPKML <- read.table("GRCm39_rna_lncRNA_unique_RPKM.txt")
+RPKMT <- read.table("230926_mouse_piRNA_RNA_transposon.txt")
+colnames(RPKMT) <- c("MIWI", "MILI", "RNA")
+
+# Read in reference data for lncRNA and genes
+REF2 <- read.table("mouse_lncRNA.bed")
+REF1 <- read.table("GCF_000001635.27_GRCm39_rna_lncRNA_unique.bed")
+
+# Combine and log-transform RPKM data, then assign categories to data points based on 'layer'
+frame1 <- log2(rbind(RPKM, RPKML, RPKMT) + 0.001)
+layer1 <- c(rep("gene", nrow(RPKM)), rep("lncRNA", nrow(RPKML)), rep("Transposon", nrow(RPKMT)))                             
+layer1[1:nrow(RPKM)][tag] <- "ppgene"
+layer1[(1+nrow(RPKM)):(nrow(RPKM)+nrow(RPKML))][tagl] <- "pplncRNA"
+
+# Prepare layer information for different categories
+layer1a <- layer1
+layer1b <- layer1
+layer1c <- layer1
+layer1d <- layer1
+layer1e <- layer1
+# Assign 'Z' to non-relevant categories in each layer
+layer1a[!layer1=="gene"] <- "Z"
+layer1b[!layer1=="ppgene"] <- "Z"
+layer1c[!layer1=="lncRNA"] <- "Z"
+layer1d[!layer1=="pplncRNA"] <- "Z"
+layer1e[!layer1=="Transposon"] <- "Z"
+
+# Category names
+lynames <- c("gene", "ppgene", "lncRNA", "pplncRNA", "Transposon")
+
+# Determine if expression is above threshold
+exp1 <- frame1[,1] > log2(0.001)
+exp2 <- frame1[,2] > log2(0.001)
+exp3 <- frame1[,3] > log2(0.001)
+
+# List of layers for iteration
+layer1s <- list(layer1a, layer1b, layer1c, layer1d, layer1e)
+
+# Regression analysis and plotting for MIWI against RNA
+# Looping through layers to plot MIWI vs. RNA for different categories
+# The code block creates regression plots, calculates R-squared values,
+# and saves the plots as PDFs.
+
+# Initialize matrix for storing regression analysis results
+Rout <- matrix(0, 5, 2)
+colnames(Rout) <- c("MIWI", "MILI")
+rownames(Rout) <- c("gene", "ppgene", "lncRNA", "pplncRNA", "Transposon")
+
+# Perform linear regression for each category and store the adjusted R-squared values
+for(i in 1:5) {
+    reg1 <- lm(MIWI ~ RNA, data = data.frame(frame1[!layer1s[[i]] == "Z" & exp1 & exp3,]))
+    Rout[i, 1] <- summary(reg1)$adj.r.squared
+}
+for(i in 1:5) {
+    reg1 <- lm(MILI ~ RNA, data = data.frame(frame1[!layer1s[[i]] == "Z" & exp2 & exp3,]))
+    Rout[i, 2] <- summary(reg1)$adj.r.squared
+}
+
+# Read in data for piRNA gene length distribution and transform the data for plotting
+tmp <- read.table("230611_mouse_piRNA_gene_length.txt")
+tmp <- tmp[,1:21]
+colnames(tmp) <- 20:40
+tib <- tmp %>%
+  rownames_to_column(var = "rownames") %>%
+  pivot_longer(cols = -rownames, names_to = "length", values_to = "RPM")
+tib$length <- as.numeric(tib$length)
+
+# Plotting the length distribution of piRNAs
+p0 <- ggplot(data = tib, mapping = aes(x = length, y = RPM)) +
+      facet_grid(rownames ~ ., scales = "free") +
+      geom_bar(stat = "identity", position = "dodge", fill = cols2[2]) +
+      theme_bw(base_size = 12.5, base_family = "Helvetica") +
+      scale_x_continuous(breaks = seq(min(tib$length), max(tib$length), by = 5))
+p0
+ggsave(file = "231128_mouse_piRNA_lengthdist.pdf", plot = p0, dpi = 320, width = 90, height = 55, units = "mm")
+
+for (i in 1:5) {
+    # Linear regression for MILI vs RNA for each category
+    reg1 <- lm(MILI ~ RNA, data = data.frame(frame1[!layer1s[[i]] == "Z" & exp2 & exp3, ]))
+    # Store the adjusted R-squared value in the Rout matrix
+    Rout[i, 2] <- summary(reg1)$adj.r.squared
+
+    # Order data points based on the category
+    od1s <- order(layer1s[[i]], decreasing = T)
+
+    # Create scatter plot for MILI vs RNA, color points based on category
+    g1 <- ggplot(frame1[od1s, ], aes(x = RNA, y = MILI)) +
+          geom_point(aes(colour = layer1s[[i]][od1s]), size = 0.5, alpha = 1) +
+          scale_color_manual(values = c(cols3[i], "#C0C0C0FF")) +
+          labs(x = "RPKM(mRNA)", y = "RPKM(MILI piRNA)") +
+          theme_bw(base_size = 12.5, base_family = "Helvetica") +
+          theme(legend.position = "none") +
+          scale_x_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15)) +
+          scale_y_continuous(breaks = seq(-10, 15, 5), limits = c(-10, 15))
+
+    # Add regression line and R-squared annotation to the plot
+    g1 <- g1 + stat_smooth(data = frame1[!layer1s[[i]] == "Z" & exp2 & exp3, ], aes(x = RNA, y = MILI), method = "lm", se = FALSE, colour = "black", linewidth = 1)
+    g1 <- g1 + annotate("text", x = -10, y = 15, label = sprintf("'R'^2 == %s", R2val), hjust = 0, vjust = 1, size = 5, parse = TRUE)
+
+    # Display the plot
+    print(g1)
+
+    # Save the plot to a PDF file
+    ggsave(file = paste0("231128_mRNA_MILI_", lynames[i], "_plot.pdf"), plot = g1, dpi = 320, width = 55, height = 55, units = "mm")
+}
